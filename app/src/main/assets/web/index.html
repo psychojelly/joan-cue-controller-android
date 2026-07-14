@@ -1,0 +1,2914 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Joan of the City — QLab Controller</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-window:    #1c1c1c;
+      --bg-panel:     #232323;
+      --bg-darker:    #161616;
+      --bg-row:       #2a2a2a;
+      --bg-row-alt:   #262626;
+      --bg-row-hover: #333;
+      --bg-input:     #141414;
+      --border:       #3a3a3a;
+      --border-light: #4a4a4a;
+      --text:         #d8d8d8;
+      --text-dim:     #888;
+      --text-bright:  #f0f0f0;
+      --accent-blue:  #6fa3ff;
+      --accent-green: #5dd29a;
+      --accent-red:   #e35858;
+      --accent-orange:#e89940;
+      --accent-purple:#b07cd5;
+      --accent-yellow:#e0c860;
+      --selection:    #1f3a5f;
+      --row-audio:    #283c5a;
+      --row-video:    #4a3520;
+      --row-light:    #5a2828;
+      --row-fade:     #3a2e4c;
+      --row-group:    #1f2a26;
+      --go-glow:      rgba(93, 210, 154, 0.65);
+    }
+
+    html, body { height: 100%; }
+    body {
+      background: var(--bg-window);
+      color: var(--text);
+      font: 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+      overflow: hidden;
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: 1fr 280px;
+      grid-template-rows: auto auto minmax(0,1fr) auto auto;
+      height: 100vh;
+    }
+
+    /* ── Top bar ───────────────────────────────────────── */
+    .topbar {
+      grid-column: 1 / 3;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 14px;
+      padding: 10px 14px;
+      background: var(--bg-window);
+      border-bottom: 1px solid var(--border);
+      align-items: center;
+    }
+    .go-btn {
+      width: 110px;
+      height: 80px;
+      background: #6a6a78;
+      border: 3px solid var(--accent-green);
+      border-radius: 7px;
+      color: #fff;
+      font-size: 30px;
+      font-weight: 600;
+      letter-spacing: 3px;
+      cursor: pointer;
+      box-shadow: 0 0 14px var(--go-glow), inset 0 1px 0 rgba(255,255,255,0.08);
+      transition: background 0.1s, transform 0.05s, box-shadow 0.1s;
+      font-family: inherit;
+    }
+    .go-btn:hover { background: #7a7a88; }
+    .go-btn:active { transform: scale(0.97); background: #4a4a5c; box-shadow: 0 0 22px var(--go-glow); }
+    .cue-header {
+      display: flex; flex-direction: column; gap: 6px; min-width: 0;
+    }
+    .cue-header .name-row,
+    .cue-header .notes-row {
+      background: #2a2a2a;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 8px 12px;
+      font-size: 14px;
+      min-height: 32px;
+      display: flex; align-items: center;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+    .cue-header .name-row { color: var(--text-bright); font-weight: 500; }
+    .cue-header .notes-row { color: var(--text); font-style: italic; }
+    .cue-header .name-row .num {
+      color: var(--accent-blue); margin-right: 8px;
+      font-family: "SF Mono", Consolas, monospace; font-style: normal;
+    }
+    .topright { display: flex; gap: 10px; }
+    .big-stop-btn, .big-ff-btn {
+      width: 110px;
+      height: 80px;
+      border-radius: 7px;
+      color: #fff;
+      font-weight: 600;
+      letter-spacing: 2px;
+      cursor: pointer;
+      transition: background 0.1s, transform 0.05s, box-shadow 0.1s;
+      font-family: inherit;
+    }
+    .big-stop-btn {
+      background: #6a4a4a;
+      border: 3px solid var(--accent-red);
+      font-size: 26px;
+      letter-spacing: 3px;
+      box-shadow: 0 0 14px rgba(227, 88, 88, 0.55), inset 0 1px 0 rgba(255,255,255,0.08);
+    }
+    .big-stop-btn:hover { background: #7a5454; }
+    .big-stop-btn:active {
+      transform: scale(0.97);
+      background: #4a2828;
+      box-shadow: 0 0 22px rgba(227, 88, 88, 0.7);
+    }
+    .big-ff-btn {
+      background: #5a563a;
+      border: 3px solid var(--accent-yellow);
+      font-size: 22px;
+      box-shadow: 0 0 14px rgba(224, 200, 96, 0.45), inset 0 1px 0 rgba(255,255,255,0.08);
+    }
+    .big-ff-btn:hover { background: #6a644a; }
+    .big-ff-btn:active {
+      transform: scale(0.97);
+      background: #3a3826;
+      box-shadow: 0 0 22px rgba(224, 200, 96, 0.7);
+    }
+    .big-ff-btn:disabled {
+      opacity: 0.5; cursor: not-allowed;
+      box-shadow: none; transform: none;
+    }
+    .big-ff-btn.running {
+      background: #8a7a30;
+      animation: ff-pulse 0.8s ease-in-out infinite alternate;
+    }
+    @keyframes ff-pulse {
+      from { box-shadow: 0 0 14px rgba(224, 200, 96, 0.45); }
+      to   { box-shadow: 0 0 26px rgba(224, 200, 96, 0.95); }
+    }
+
+    /* ── Toolbar ───────────────────────────────────────── */
+    .toolbar {
+      grid-column: 1 / 3;
+      display: flex;
+      gap: 6px;
+      padding: 6px 14px;
+      background: var(--bg-window);
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .tb-group {
+      display: flex;
+      gap: 2px;
+      padding: 2px;
+      background: #1a1a1a;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+    .tb-btn {
+      min-width: 32px; height: 28px;
+      padding: 0 8px;
+      background: transparent;
+      border: 0;
+      color: var(--text-dim);
+      cursor: pointer;
+      border-radius: 4px;
+      font-size: 13px;
+      display: flex; align-items: center; justify-content: center;
+      font-family: inherit;
+    }
+    .tb-btn:hover { background: var(--bg-row-hover); color: var(--text); }
+    .tb-btn.audio { color: var(--accent-orange); }
+    .tb-btn.video { color: var(--accent-blue); }
+    .tb-btn.light { color: var(--accent-red); }
+    .tb-btn.fade  { color: var(--accent-purple); }
+    .tb-btn.group { color: var(--accent-green); }
+    .tb-spacer { flex: 1; }
+
+    /* Scrub group: inline number input + two action buttons */
+    .scrub-input {
+      width: 80px;
+      height: 24px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: "SF Mono", Consolas, monospace;
+      font-size: 12px;
+      padding: 0 6px;
+      outline: none;
+      text-align: right;
+    }
+    .scrub-input:focus { border-color: var(--accent-blue); }
+    .scrub-unit {
+      color: var(--text-dim);
+      font-size: 11px;
+      padding: 0 4px;
+    }
+    .tb-group-label {
+      color: var(--accent-blue);
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 0 6px 0 4px;
+      align-self: center;
+      white-space: nowrap;
+    }
+
+    /* ── Cue list (main table) ─────────────────────────── */
+    .cue-list {
+      grid-column: 1;
+      grid-row: 3;
+      background: var(--bg-window);
+      overflow: auto;
+      display: flex;
+      flex-direction: column;
+    }
+    .cl-head, .cl-row {
+      display: grid;
+      grid-template-columns: 32px 110px 1fr 90px;
+      align-items: center;
+    }
+    .cl-head {
+      background: #161616;
+      color: var(--text-dim);
+      font-size: 11px;
+      font-weight: 600;
+      position: sticky; top: 0;
+      z-index: 2;
+      border-bottom: 1px solid var(--border);
+    }
+    .cl-head > div {
+      padding: 6px 8px;
+      border-right: 1px solid #0e0e0e;
+    }
+    .cl-head .arrow {
+      color: var(--text-dim); font-size: 10px;
+      display: inline-block; margin-left: 4px;
+    }
+    .cl-row {
+      cursor: pointer;
+      border-bottom: 1px solid #1a1a1a;
+      border-left: 3px solid transparent;
+      height: 28px;
+      user-select: none;
+    }
+    .cl-row:nth-child(odd)  { background: var(--bg-row-alt); }
+    .cl-row:nth-child(even) { background: var(--bg-row); }
+    .cl-row:hover { background: #353535; }
+    .cl-row.audio { background: var(--row-audio); }
+    .cl-row.video { background: var(--row-video); }
+    .cl-row.light { background: var(--row-light); }
+    .cl-row.fade  { background: var(--row-fade); }
+    .cl-row.group { background: #1d1d1d; font-weight: 500; }
+    .cl-row.selected {
+      background: #4a78d2 !important;       /* bright, high-sat blue — distinct from audio row */
+      border-left: 3px solid #b8d4ff !important;
+    }
+    .cl-row.selected .icon-cell,
+    .cl-row.selected .num-cell,
+    .cl-row.selected .name-cell,
+    .cl-row.selected .time-cell { color: #ffffff; }
+    .cl-row.primary {
+      background: #5a92ec !important;       /* even brighter for the anchor */
+      border-left: 3px solid var(--accent-green) !important;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18);
+    }
+    .cl-row.user-group { background: #2a2438 !important; }
+    .cl-row.user-group .icon-cell { color: var(--accent-purple); }
+    .cl-row.user-group .name-cell { color: #d6c8ec; font-weight: 600; }
+    .cl-row.user-group.selected { background: #6855a8 !important; }
+    .cl-row.user-group.primary  { background: #8268c8 !important; }
+    .cl-row.playing {
+      background: #1f4a35 !important;
+      border-left-color: var(--accent-green);
+      box-shadow: inset 4px 0 0 var(--accent-green);
+    }
+    .cl-row.playing .icon-cell,
+    .cl-row.playing .num-cell,
+    .cl-row.playing .name-cell,
+    .cl-row.playing .time-cell { color: #b8f0d0; }
+    .cl-row.armed-no { opacity: 0.45; }
+    .cl-row > div {
+      padding: 0 8px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .cl-row .icon-cell {
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-dim);
+      font-size: 13px;
+    }
+    .cl-row .icon-cell.audio { color: var(--accent-blue); }
+    .cl-row .icon-cell.video { color: var(--accent-orange); }
+    .cl-row .icon-cell.light { color: var(--accent-red); }
+    .cl-row .icon-cell.fade  { color: var(--accent-purple); }
+    .cl-row .icon-cell.group { color: var(--accent-green); }
+    .cl-row .icon-cell.text  { color: var(--text); font-style: italic; }
+    .cl-row .num-cell  {
+      font-family: "SF Mono", Consolas, monospace;
+      color: var(--text);
+      font-size: 12px;
+    }
+    .cl-row .name-cell { color: var(--text); }
+    .cl-row .time-cell {
+      font-family: "SF Mono", Consolas, monospace;
+      color: var(--text-dim);
+      text-align: right;
+      font-size: 12px;
+    }
+    .cl-row .target-cell {
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-dim); font-size: 11px;
+    }
+    .disclosure {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      line-height: 16px;
+      text-align: center;
+      color: var(--text-dim);
+      font-size: 10px;
+      transition: transform 0.08s, color 0.1s;
+      margin-right: 6px;
+      cursor: pointer;
+      border-radius: 3px;
+    }
+    .disclosure:hover { color: var(--text-bright); background: rgba(255,255,255,0.08); }
+    .cl-row.collapsed .disclosure { transform: rotate(-90deg); }
+
+    /* Only the name column indents with depth — the number column stays in a
+       fixed gutter so cue numbers always have at least ~12 chars of room. */
+    .cl-row .name-cell { padding-left: calc(8px + var(--depth, 0) * 20px); }
+    .cl-row .num-cell  { padding-left: 8px; }
+    .cl-row .name-cell .disclosure { margin-right: 6px; }
+
+    .cl-row { position: relative; }
+    /* Vertical indent guides — one thin line per ancestor depth, anchored to
+       the row so they stack continuously between siblings at the same level. */
+    .indent-guide {
+      position: absolute;
+      top: 0; bottom: 0;
+      width: 1px;
+      background: rgba(255,255,255,0.10);
+      pointer-events: none;
+    }
+
+    /* Group count badge appended to group names. */
+    .group-count {
+      display: inline-block;
+      margin-left: 8px;
+      padding: 1px 7px;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-dim);
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 9px;
+      font-family: "SF Mono", Consolas, monospace;
+      vertical-align: middle;
+    }
+    .cl-row.selected .group-count,
+    .cl-row.primary .group-count {
+      color: #fff;
+      background: rgba(255,255,255,0.18);
+      border-color: rgba(255,255,255,0.25);
+    }
+
+    /* GO indicator on PRIMARY selected row only */
+    .cl-row.primary .icon-cell::after {
+      content: "▶";
+      color: var(--accent-green);
+      font-size: 9px;
+      margin-left: 4px;
+    }
+
+    /* ── Right sidebar (list/cart tree) ────────────────── */
+    .sidebar {
+      grid-column: 2;
+      grid-row: 3;
+      background: var(--bg-darker);
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .sb-tabs {
+      display: flex;
+      background: var(--bg-window);
+      border-bottom: 1px solid var(--border);
+    }
+    .sb-tab {
+      flex: 1;
+      padding: 9px 10px;
+      background: transparent;
+      border: 0;
+      color: var(--text-dim);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      border-bottom: 2px solid transparent;
+      font-family: inherit;
+    }
+    .sb-tab.active {
+      color: var(--text-bright);
+      border-bottom-color: var(--accent-blue);
+    }
+    .sb-body { flex: 1; overflow: auto; padding: 6px; }
+    .sb-tree-item {
+      padding: 5px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      color: var(--text);
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .sb-tree-item:hover { background: var(--bg-row-hover); }
+    .sb-tree-item.selected { background: var(--selection); color: var(--text-bright); }
+    .sb-tree-item .chev { color: var(--text-dim); font-size: 9px; width: 12px; }
+    .sb-tree-item.child { padding-left: 22px; }
+    .sb-buttons {
+      display: flex; gap: 4px; padding: 6px;
+      border-top: 1px solid var(--border);
+    }
+    .sb-buttons button {
+      flex: 1; padding: 6px;
+      background: var(--bg-row); border: 1px solid var(--border); color: var(--text);
+      border-radius: 4px; cursor: pointer; font-size: 11px;
+      font-family: inherit;
+    }
+    .sb-buttons button:hover { border-color: var(--accent-blue); color: var(--text-bright); }
+
+    /* ── Inspector ─────────────────────────────────────── */
+    .inspector {
+      grid-column: 1 / 3;
+      grid-row: 4;
+      background: var(--bg-window);
+      border-top: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      max-height: 230px;
+    }
+    .insp-tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      padding: 0 10px;
+      background: #1a1a1a;
+    }
+    .insp-tab {
+      padding: 8px 14px;
+      background: transparent;
+      border: 0;
+      color: var(--text-dim);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      border-bottom: 2px solid transparent;
+      font-family: inherit;
+    }
+    .insp-tab.active {
+      color: var(--text-bright);
+      border-bottom-color: var(--accent-blue);
+    }
+    .insp-body {
+      padding: 0;
+      overflow: auto;
+      flex: 1;
+    }
+    .insp-title {
+      padding: 8px 14px;
+      font-size: 11px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      background: #1a1a1a;
+      border-bottom: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .insp-title .name { color: var(--accent-green); text-transform: none; letter-spacing: 0; font-size: 12px; }
+
+    /* Color tag picker — sits just below the inspector title. */
+    .insp-color-strip {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 14px;
+      background: #1a1a1a;
+      border-bottom: 1px solid var(--border);
+    }
+    .insp-color-strip .strip-label {
+      font-size: 11px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-right: 4px;
+    }
+    .insp-color-strip .strip-hint {
+      font-size: 11px;
+      color: var(--text-dim);
+      margin-left: 8px;
+      font-style: italic;
+    }
+    .swatch {
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      border: 2px solid transparent;
+      cursor: pointer;
+      padding: 0;
+      transition: transform 0.08s, border-color 0.1s;
+      position: relative;
+    }
+    .swatch:hover { transform: scale(1.15); }
+    .swatch.active { border-color: #fff; box-shadow: 0 0 0 1px #000; }
+    .swatch.none {
+      background: transparent;
+      border: 2px dashed var(--border);
+      color: var(--text-dim);
+      font-size: 12px;
+      line-height: 18px;
+      text-align: center;
+      font-family: inherit;
+    }
+    .swatch.none:hover { border-color: var(--accent-red); color: var(--accent-red); }
+    .swatch:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+    .stems-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: "SF Mono", Consolas, monospace;
+      font-size: 12px;
+    }
+    .stems-table th, .stems-table td {
+      padding: 5px 12px;
+      text-align: left;
+      border-bottom: 1px solid #1a1a1a;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .stems-table th {
+      background: #161616;
+      color: var(--text-dim);
+      font-weight: 600;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      position: sticky; top: 0;
+    }
+    .stems-table td { color: var(--text); }
+    .stems-table tr:nth-child(odd) td { background: var(--bg-row-alt); }
+    .stems-table tr:nth-child(even) td { background: var(--bg-row); }
+    .stems-table td.dim { color: var(--text-dim); }
+    .stems-empty {
+      padding: 18px 14px;
+      color: var(--text-dim);
+      font-size: 12px;
+      text-align: center;
+    }
+
+    /* ── Status bar ────────────────────────────────────── */
+    .statusbar {
+      grid-column: 1 / 3;
+      grid-row: 5;
+      background: var(--bg-darker);
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 14px;
+      font-size: 11px;
+      color: var(--text-dim);
+      gap: 14px;
+    }
+    .sb-left, .sb-right { display: flex; gap: 8px; align-items: center; }
+    .mode-toggle {
+      display: flex;
+      background: var(--bg-row);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .mode-toggle button {
+      background: transparent;
+      border: 0;
+      color: var(--text-dim);
+      padding: 3px 12px;
+      cursor: pointer;
+      font-size: 11px;
+      font-family: inherit;
+    }
+    .mode-toggle button.active { background: #2a2a2a; color: var(--text-bright); }
+    #status-text { flex: 1; text-align: center; font-family: "SF Mono", Consolas, monospace; }
+    #status-text.ok  { color: var(--accent-green); }
+    #status-text.err { color: var(--accent-red); }
+    .stop-btn {
+      background: #6a2a2a;
+      border: 1px solid var(--accent-red);
+      color: #fff;
+      padding: 4px 14px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: inherit;
+    }
+    .stop-btn:hover { background: #8a3838; }
+
+    /* ── Settings drawer ───────────────────────────────── */
+    .drawer-shade {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.4);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+      z-index: 90;
+    }
+    .drawer-shade.open { opacity: 1; pointer-events: auto; }
+    .drawer {
+      position: fixed;
+      top: 0; right: -480px;
+      width: 460px;
+      height: 100vh;
+      background: var(--bg-panel);
+      border-left: 1px solid var(--border);
+      transition: right 0.2s;
+      z-index: 100;
+      padding: 16px 18px;
+      overflow: auto;
+      box-shadow: -4px 0 16px rgba(0,0,0,0.5);
+    }
+    .drawer.open { right: 0; }
+    .drawer h2 {
+      font-size: 16px;
+      margin-bottom: 14px;
+      color: var(--text-bright);
+      font-weight: 600;
+    }
+    .drawer .section { margin-bottom: 18px; }
+    .drawer .section-title {
+      font-size: 11px; color: var(--text-dim);
+      text-transform: uppercase; letter-spacing: 0.08em;
+      margin-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 4px;
+    }
+    .drawer .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+    .drawer label {
+      font-size: 11px; color: var(--text-dim);
+      text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .drawer input, .drawer select {
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: "SF Mono", Consolas, monospace;
+      font-size: 12px;
+      padding: 7px 9px;
+      outline: none;
+      width: 100%;
+    }
+    .drawer input:focus, .drawer select:focus { border-color: var(--accent-blue); }
+    .drawer .row { display: flex; gap: 6px; align-items: end; }
+    .drawer .row > .field { flex: 1; margin-bottom: 0; }
+    .drawer button {
+      background: var(--bg-row);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 7px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      font-family: inherit;
+    }
+    .drawer button:hover { border-color: var(--accent-blue); color: var(--text-bright); }
+    .drawer .close-x {
+      position: absolute; top: 8px; right: 12px;
+      background: transparent; border: 0; color: var(--text-dim);
+      font-size: 20px; cursor: pointer; padding: 4px 8px;
+      font-family: inherit;
+    }
+    .drawer .close-x:hover { color: var(--text); }
+    .drawer .ip-list {
+      max-height: 140px; overflow: auto;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 4px;
+      margin-bottom: 8px;
+    }
+    .drawer .ip-item {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 4px 6px;
+      border-radius: 3px;
+      font-family: "SF Mono", Consolas, monospace;
+      font-size: 12px;
+    }
+    .drawer .ip-item:hover { background: #2a2a2a; }
+    .drawer .ip-item .rm {
+      background: transparent; border: 0; color: var(--text-dim);
+      cursor: pointer; font-size: 14px;
+    }
+    .drawer .ip-item .rm:hover { color: var(--accent-red); }
+
+    /* ── Drawer tabs ─────────────────────────────────── */
+    .drawer-tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      margin: -4px -4px 14px;
+      padding: 0 2px;
+    }
+    .drawer-tab {
+      background: transparent;
+      border: 0;
+      color: var(--text-dim);
+      padding: 8px 14px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      border-bottom: 2px solid transparent;
+      font-family: inherit;
+    }
+    .drawer-tab:hover { color: var(--text); }
+    .drawer-tab.active {
+      color: var(--text-bright);
+      border-bottom-color: var(--accent-blue);
+    }
+    .drawer-pane[hidden] { display: none; }
+
+    /* ── IP groups list ──────────────────────────────── */
+    .ipg-list {
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 4px;
+      max-height: 140px;
+      overflow: auto;
+      margin-bottom: 6px;
+    }
+    .ipg-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 6px;
+      border-radius: 3px;
+      font-size: 12px;
+    }
+    .ipg-row:hover { background: #2a2a2a; }
+    .ipg-row .name { flex: 1; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ipg-row .count {
+      color: var(--text-dim);
+      font-family: "SF Mono", Consolas, monospace;
+      font-size: 11px;
+      padding: 0 6px;
+    }
+    .ipg-row button {
+      background: transparent; border: 0; color: var(--text-dim);
+      cursor: pointer; font-size: 13px; padding: 2px 4px;
+    }
+    .ipg-row button.rename:hover { color: var(--accent-blue); }
+    .ipg-row button.rm:hover     { color: var(--accent-red); }
+    .ipg-empty { padding: 8px; font-size: 12px; color: var(--text-dim); text-align: center; }
+
+    /* ── Bulk IP table ───────────────────────────────── */
+    .ip-bulk-list {
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 4px;
+      max-height: 240px;
+      overflow: auto;
+      margin-bottom: 6px;
+    }
+    /* Grid keeps every column in a perfect vertical alignment regardless of
+       row content: checkbox · address · count · delete. */
+    .ipb-row {
+      display: grid;
+      grid-template-columns: 22px 1fr 32px 22px;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 8px;
+      border-radius: 3px;
+      font-family: "SF Mono", Consolas, monospace;
+      font-size: 12px;
+    }
+    .ipb-row:hover { background: #2a2a2a; }
+    .ipb-row input[type="checkbox"] {
+      accent-color: var(--accent-blue);
+      width: 14px; height: 14px;
+      margin: 0;
+      justify-self: center;
+    }
+    .ipb-row .addr {
+      color: var(--text);
+      text-align: left;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .ipb-row .badge {
+      color: var(--text-dim);
+      font-size: 10px;
+      padding: 1px 6px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 8px;
+      font-weight: 600;
+    }
+    .ipb-row .badge.in0 { color: #888; }
+    .ipb-row .badge.in1 { color: var(--accent-blue); background: rgba(111,163,255,0.10); border-color: rgba(111,163,255,0.20); }
+    .ipb-row .badge.in2 { color: var(--accent-green); background: rgba(93,210,154,0.10); border-color: rgba(93,210,154,0.20); }
+    .ipb-row .badge.in3 { color: var(--accent-yellow); background: rgba(224,200,96,0.10); border-color: rgba(224,200,96,0.20); }
+    .ipb-row .rm {
+      background: transparent; border: 0; color: var(--text-dim);
+      cursor: pointer; font-size: 13px;
+    }
+    .ipb-row .rm:hover { color: var(--accent-red); }
+    .ipb-header {
+      display: grid;
+      grid-template-columns: 22px 1fr auto;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 8px;
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+    .ipb-header input[type="checkbox"] {
+      accent-color: var(--accent-blue);
+      width: 14px; height: 14px;
+      margin: 0;
+      justify-self: center;
+    }
+    .ipb-header label { white-space: nowrap; cursor: pointer; }
+    .ipb-header .count-right { text-align: right; white-space: nowrap; }
+    .ip-bulk-actions {
+      display: flex; flex-wrap: wrap; gap: 4px;
+      padding: 6px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      margin-bottom: 8px;
+      align-items: center;
+    }
+    .ip-bulk-actions select { width: auto; min-width: 110px; }
+    .ip-bulk-actions button { padding: 5px 10px; font-size: 11px; }
+    .ip-bulk-actions .sel-count {
+      font-size: 11px; color: var(--accent-blue);
+      font-weight: 600; margin-right: 4px;
+    }
+    .ip-bulk-actions.disabled { opacity: 0.5; pointer-events: none; }
+
+    /* Toolbar audience selector */
+    .tb-select {
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 12px;
+      padding: 4px 8px;
+      outline: none;
+      max-width: 180px;
+    }
+    .tb-select:focus { border-color: var(--accent-blue); }
+
+    /* Audience chips — multi-toggle, used in both toolbar and drawer */
+    .audience-chips {
+      display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
+      max-width: 100%;
+    }
+    .audience-chips.drawer {
+      padding: 4px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      max-height: 140px;
+      overflow: auto;
+    }
+    .audience-chip {
+      padding: 4px 10px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      color: var(--text-dim);
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: inherit;
+      transition: background 0.1s, border-color 0.1s, color 0.1s;
+      white-space: nowrap;
+    }
+    .audience-chip:hover { border-color: var(--accent-blue); color: var(--text); }
+    .audience-chip.on {
+      background: var(--accent-blue);
+      color: #0a0a14;
+      border-color: var(--accent-blue);
+    }
+    .audience-chip.all-chip.on {
+      background: var(--accent-green);
+      color: #0a1a14;
+      border-color: var(--accent-green);
+    }
+    .audience-summary {
+      font-size: 11px;
+      color: var(--text-dim);
+      margin-left: 6px;
+      font-family: "SF Mono", Consolas, monospace;
+      white-space: nowrap;
+    }
+    .audience-empty {
+      color: var(--accent-red);
+      font-size: 11px;
+      font-style: italic;
+      padding: 0 6px;
+    }
+
+    /* Vertical checkbox list used inside the drawer for audience selection.
+       (The toolbar still uses compact chips for one-click toggles.) */
+    .audience-checks {
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 4px;
+      max-height: 200px;
+      overflow: auto;
+    }
+    .audience-checks .row {
+      display: grid;
+      grid-template-columns: 22px 1fr auto;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 8px;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 12px;
+      color: var(--text);
+    }
+    .audience-checks .row:hover { background: #2a2a2a; }
+    .audience-checks .row input[type="checkbox"] {
+      accent-color: var(--accent-blue);
+      width: 14px; height: 14px;
+      margin: 0; justify-self: center;
+    }
+    .audience-checks .row.all-row {
+      background: rgba(93,210,154,0.08);
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 2px;
+      padding-bottom: 8px;
+    }
+    .audience-checks .row.all-row input[type="checkbox"] { accent-color: var(--accent-green); }
+    .audience-checks .row .count {
+      color: var(--text-dim);
+      font-family: "SF Mono", Consolas, monospace;
+      font-size: 11px;
+    }
+    .audience-checks .row.on { color: var(--text-bright); font-weight: 600; }
+
+    /* Custom tooltips: appear ~50 ms after hover, far faster than the native
+       browser title delay. Elements use [data-tip] (populated from [title] at
+       startup by JS so we can keep the HTML attribute for accessibility). */
+    [data-tip] { position: relative; }
+    [data-tip]:hover::after {
+      content: attr(data-tip);
+      position: absolute;
+      bottom: calc(100% + 6px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: #0c0c0c;
+      color: var(--text-bright);
+      padding: 5px 9px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 500;
+      white-space: pre;
+      max-width: 320px;
+      z-index: 9999;
+      pointer-events: none;
+      border: 1px solid #444;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+      animation: tip-in 80ms ease-out 50ms both;   /* 50 ms appearance delay */
+      letter-spacing: 0.01em;
+    }
+    @keyframes tip-in { from { opacity: 0; transform: translateX(-50%) translateY(2px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+    /* Buttons inside a tight toolbar overflow visibly; clip needed in places. */
+
+    /* scrollbars (webkit) */
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-track { background: #141414; }
+    ::-webkit-scrollbar-thumb { background: #333; border-radius: 5px; }
+    ::-webkit-scrollbar-thumb:hover { background: #444; }
+  </style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ── Top bar ──────────────────────────────────────── -->
+  <div class="topbar">
+    <button class="go-btn" id="go-btn" title="Fire selected cue and advance (Space / Enter)">GO</button>
+    <div class="cue-header">
+      <div class="name-row" id="hdr-name"><span class="num" id="hdr-num">—</span><span id="hdr-label">No cue selected</span></div>
+      <div class="notes-row" id="hdr-notes">—</div>
+    </div>
+    <div class="topright">
+      <button class="big-ff-btn" id="big-ff-btn" title="Fast-forward: fire every leaf between first and last selected, with delay">⏩ FF</button>
+      <button class="big-stop-btn" id="big-stop-btn" title="Send STOP_ALL cue (also cancels fast-forward)">STOP</button>
+    </div>
+  </div>
+
+  <!-- ── Toolbar ──────────────────────────────────────── -->
+  <div class="toolbar">
+    <div class="tb-group">
+      <button class="tb-btn group" id="tb-expand-all" title="Expand all">▾</button>
+      <button class="tb-btn group" id="tb-collapse-all" title="Collapse all">▸</button>
+    </div>
+    <div class="tb-group">
+      <button class="tb-btn group" id="tb-group"   title="Group selected (Ctrl+G) — requires contiguous selection">⊞ Group</button>
+      <button class="tb-btn"       id="tb-rename"  title="Rename selected user group (F2)">✎ Rename</button>
+      <button class="tb-btn"       id="tb-ungroup" title="Ungroup selected user group (Ctrl+Shift+G)">⊟ Ungroup</button>
+    </div>
+    <div class="tb-group">
+      <button class="tb-btn" id="tb-load-csv" title="Reload audio CSV">↻ CSV</button>
+      <button class="tb-btn" id="tb-settings" title="Settings">⚙ Settings</button>
+    </div>
+    <div class="tb-group" title="Toggle audiences to broadcast to. Cues go to the union of selected groups. 'All' is a shortcut for every known IP.">
+      <span class="tb-group-label">Audience</span>
+      <div class="audience-chips" id="audience-chips"></div>
+      <span class="audience-summary" id="audience-summary">→ 0 IPs</span>
+    </div>
+    <div class="tb-group">
+      <span class="tb-group-label">♪ Audio scrub</span>
+      <input  type="number" id="scrub-seconds" class="scrub-input" step="0.1" value="5" title="Seconds (positive or negative)" />
+      <span class="scrub-unit">s</span>
+      <button class="tb-btn" id="scrub-jump-btn" title="Advance the audio playhead by this many seconds (relative). Wraps at both ends. Sends /audio/jump.">⇄ Advance</button>
+      <button class="tb-btn" id="scrub-set-btn"  title="Set the audio playhead to this absolute time. Negatives clamp to 0, past-end wraps. Sends /audio/seek.">↘ Set</button>
+    </div>
+    <div class="tb-spacer"></div>
+    <div style="font-size:11px;color:var(--text-dim);padding:0 8px;">Click · Shift-click · Ctrl-click</div>
+  </div>
+
+  <!-- ── Main cue list ────────────────────────────────── -->
+  <div class="cue-list" id="cue-list">
+    <div class="cl-head">
+      <div></div>
+      <div>Number</div>
+      <div>Name</div>
+      <div>Duration <span class="arrow">›</span></div>
+    </div>
+    <div id="cl-body"></div>
+  </div>
+
+  <!-- ── Right sidebar (lists/carts tree) ─────────────── -->
+  <div class="sidebar">
+    <div class="sb-tabs">
+      <button class="sb-tab active" id="sb-tab-lists">Lists &amp; Carts</button>
+      <button class="sb-tab" id="sb-tab-active">Active</button>
+    </div>
+    <div class="sb-body" id="sb-body"></div>
+    <div class="sb-buttons">
+      <button id="sb-open-window">Settings</button>
+    </div>
+  </div>
+
+  <!-- ── Inspector: color picker + stems table for active cue ────────── -->
+  <div class="inspector">
+    <div class="insp-title">
+      <span>Active cue stems</span>
+      <span class="name" id="insp-active-name">—</span>
+    </div>
+    <div class="insp-color-strip" id="insp-color-strip">
+      <span class="strip-label">Color tag</span>
+      <button class="swatch none" data-color="" title="Clear color">✕</button>
+      <!-- swatches injected by JS so the palette stays in one place -->
+      <span class="strip-hint" id="insp-color-hint">Select a cue to tag it</span>
+    </div>
+    <div class="insp-body" id="insp-body"></div>
+  </div>
+
+  <!-- ── Status bar ───────────────────────────────────── -->
+  <div class="statusbar">
+    <div class="sb-left">
+      <button class="stop-btn" id="stop-all-btn">■ Stop All</button>
+    </div>
+    <div id="status-text">Ready — click a cue or press GO</div>
+    <div class="sb-right">
+      <span id="cue-count">0 cues</span>
+    </div>
+  </div>
+</div>
+
+<!-- ── Settings drawer ──────────────────────────────────── -->
+<div class="drawer-shade" id="drawer-shade"></div>
+<div class="drawer" id="drawer">
+  <button class="close-x" id="drawer-close">✕</button>
+  <h2>Settings</h2>
+
+  <div class="drawer-tabs">
+    <button class="drawer-tab active" data-tab="ips">IPs &amp; Audiences</button>
+    <button class="drawer-tab"        data-tab="general">General</button>
+    <button class="drawer-tab"        data-tab="help">Help</button>
+  </div>
+
+  <!-- ── IPs tab ────────────────────────────────────── -->
+  <div class="drawer-pane" data-tab="ips">
+    <div class="section">
+      <div class="section-title">Active audiences</div>
+      <div class="audience-checks" id="audience-checks-drawer"></div>
+      <div style="font-size:11px;color:var(--text-dim);margin-top:6px;">
+        Check any combination of audiences — cues broadcast to the <em>union</em> of selected groups.
+        Checking "All IPs" sends to every known IP (overrides the rest).
+        The same set is mirrored as toggle pills in the toolbar.
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Groups</div>
+      <div class="ipg-list" id="ipg-list"></div>
+      <div class="row">
+        <div class="field"><input type="text" id="ipg-new" placeholder="New group name (e.g. Stage)" /></div>
+        <button id="ipg-add-btn">+ Add group</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">IPs</div>
+      <div class="row" style="margin-bottom:6px;">
+        <label style="margin:0; align-self:center;">Show</label>
+        <select id="ip-filter" class="tb-select" style="flex:1;"></select>
+      </div>
+      <div class="ipb-header">
+        <input type="checkbox" id="ip-select-all" />
+        <label for="ip-select-all">Select all visible</label>
+        <span class="count-right" id="ip-visible-count">0 IPs</span>
+      </div>
+      <div class="ip-bulk-list" id="ip-bulk-list"></div>
+      <div class="ip-bulk-actions" id="ip-bulk-actions">
+        <span class="sel-count" id="ip-sel-count">0 selected</span>
+        <select id="ip-bulk-target" class="tb-select"></select>
+        <button id="ip-bulk-add-to-btn"      title="Add selected IPs to this group (each IP can belong to multiple groups)">+ Add to group</button>
+        <button id="ip-bulk-remove-from-btn" title="Remove selected IPs from this group (the IP itself isn't deleted)">− Remove from group</button>
+        <button id="ip-bulk-delete-btn" style="margin-left:auto;color:var(--accent-red);" title="Delete selected IPs entirely (also removes from every group)">Delete selected</button>
+      </div>
+
+      <div class="row" style="margin-top:8px;">
+        <div class="field"><input type="text" id="host-new" placeholder="e.g. 192.168.1.10" /></div>
+        <select id="ip-new-group-target" class="tb-select" title="Group to add the new IP to"></select>
+        <button id="ip-add-btn">+ Add IP</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── General tab ────────────────────────────────── -->
+  <div class="drawer-pane" data-tab="general" hidden>
+    <div class="section">
+      <div class="section-title">OSC</div>
+      <div class="row">
+        <div class="field">
+          <label>UDP Port</label>
+          <input type="number" id="port" value="7000" min="1" max="65535" />
+        </div>
+        <div class="field">
+          <label>Cue OSC Address</label>
+          <input type="text" id="address" value="/cue" />
+        </div>
+      </div>
+      <div class="field">
+        <label>Audio Cue OSC Address</label>
+        <input type="text" id="audio-address" value="/audio/cue" />
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Audio CSV</div>
+      <div class="field">
+        <label>CSV URL</label>
+        <input type="text" id="audio-csv-url"
+               value="https://raw.githubusercontent.com/dlobser/opera-audio/main/audio_cues.csv" />
+      </div>
+      <div class="row">
+        <button id="audio-load-btn">Load CSV</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Fast Forward</div>
+      <div class="field">
+        <label>Delay between cues (ms)</label>
+        <input type="number" id="ff-delay" min="0" max="600000" step="50" value="1000" />
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Export / Import</div>
+      <div class="row">
+        <button id="ip-export-btn" title="Export all settings (IPs, groups, audiences, port, addresses, CSV URL, cue groups, colors, FF delay)">Export Settings</button>
+        <button id="ip-import-btn" title="Import settings JSON">Import Settings</button>
+        <input type="file" id="ip-import-file" accept=".json" style="display:none" />
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Help tab ───────────────────────────────────── -->
+  <div class="drawer-pane" data-tab="help" hidden>
+    <div class="section">
+      <div style="font-size:12px; color:var(--text-dim); line-height:1.6;">
+        <p><strong style="color:var(--text)">GO</strong> — fire primary cue, advance to next</p>
+        <p><strong style="color:var(--text)">Space / Enter</strong> — same as GO</p>
+        <p><strong style="color:var(--text)">↑ / ↓</strong> — move selection</p>
+        <p><strong style="color:var(--text)">← / →</strong> — collapse / expand group</p>
+        <p><strong style="color:var(--text)">Click row</strong> — select one</p>
+        <p><strong style="color:var(--text)">Shift+Click</strong> — select range</p>
+        <p><strong style="color:var(--text)">Ctrl/Cmd+Click</strong> — toggle individual</p>
+        <p><strong style="color:var(--text)">Double-click row</strong> — fire (no advance)</p>
+        <p><strong style="color:var(--text)">Ctrl/Cmd+G</strong> — group selected cues (must be contiguous)</p>
+        <p><strong style="color:var(--text)">Ctrl/Cmd+Shift+G</strong> — ungroup selected user-group</p>
+        <p><strong style="color:var(--text)">F2</strong> — rename selected user group</p>
+        <p style="margin-top:8px;">Settings (IPs, audiences, port, OSC addresses, CSV URL, cue groupings, colors, FF delay) are persisted in <code style="color:var(--accent-blue)">localStorage</code>. Use Export / Import Settings in General to back them up or move between machines.</p>
+        <p style="margin-top:8px;">Browsers can't send UDP. Run <code style="color:var(--accent-blue)">proxy.py</code> on localhost:8765.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════════════════════════
+// Settings (persisted in localStorage) — unified store for IPs, ports, OSC
+// addresses, CSV URL, and user-defined groupings. Migrates from the old
+// `osc_ip_list` key (IP-only) automatically.
+// ════════════════════════════════════════════════════════════════════════════
+const SETTINGS_KEY = 'qlab_settings_v1';
+const LEGACY_IP_KEY = 'osc_ip_list';
+const DEFAULT_IPS = ['127.0.0.1'];
+const DEFAULT_SETTINGS = {
+  ipList: [...DEFAULT_IPS],
+  port: 7000,
+  address: '/cue',
+  audioAddress: '/audio/cue',
+  csvUrl: 'https://raw.githubusercontent.com/dlobser/opera-audio/main/audio_cues.csv',
+  userGroupings: [],   // [{ id, name, parentRef, memberRefs, expanded }]
+  userColors: {},      // { [userId]: paletteKey }
+  ffDelay: 1000,       // ms between cues during fast-forward
+  ipGroups: [],        // [{ id, name, members: [ip,...] }] — IPs can be in many
+  activeIpGroups: ['all'], // array of selected audience ids; 'all' is a sentinel
+};
+
+function loadSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY));
+    if (saved && typeof saved === 'object') return { ...DEFAULT_SETTINGS, ...saved };
+  } catch (_) {}
+  // Migration: older versions only stored IPs under LEGACY_IP_KEY.
+  try {
+    const legacy = JSON.parse(localStorage.getItem(LEGACY_IP_KEY));
+    if (Array.isArray(legacy) && legacy.length) return { ...DEFAULT_SETTINGS, ipList: legacy };
+  } catch (_) {}
+  return { ...DEFAULT_SETTINGS };
+}
+
+function saveSettings(partial) {
+  const cur = loadSettings();
+  const next = { ...cur, ...partial };
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
+  return next;
+}
+
+// Master IP list — every known IP regardless of group membership.
+function loadAllIPs()  { return loadSettings().ipList || [...DEFAULT_IPS]; }
+function saveAllIPs(list) {
+  const deduped = [...new Set(list || [])];
+  saveSettings({ ipList: deduped.length ? deduped : [...DEFAULT_IPS] });
+}
+
+// What `sendOsc` uses — union of every selected audience group's members.
+// If 'all' is in the active set, broadcast to the full master roster.
+function loadIPs() {
+  const s = loadSettings();
+  const active = loadActiveGroups();
+  if (!active.length) return [];                       // nothing selected
+  if (active.includes('all')) return s.ipList || [...DEFAULT_IPS];
+  const master = new Set(s.ipList || []);
+  const out = new Set();
+  for (const id of active) {
+    const g = (s.ipGroups || []).find(x => x.id === id);
+    if (!g) continue;
+    for (const ip of (g.members || [])) if (master.has(ip)) out.add(ip);
+  }
+  return [...out];
+}
+// Back-compat shim — older code paths called saveIPs(list); route to master.
+function saveIPs(list) { saveAllIPs(list); }
+
+// ── IP groups CRUD ──────────────────────────────────────────────────────
+function loadIpGroups()       { return Array.isArray(loadSettings().ipGroups) ? loadSettings().ipGroups : []; }
+function saveIpGroups(groups) { saveSettings({ ipGroups: groups }); }
+
+// Active audiences — can be multiple. Migrates the old `activeIpGroup` scalar.
+function loadActiveGroups() {
+  const s = loadSettings();
+  if (Array.isArray(s.activeIpGroups)) return [...s.activeIpGroups];
+  if (s.activeIpGroup === 'all') return ['all'];
+  if (typeof s.activeIpGroup === 'string' && s.activeIpGroup) return [s.activeIpGroup];
+  return ['all'];
+}
+function saveActiveGroups(ids) {
+  saveSettings({ activeIpGroups: Array.isArray(ids) ? ids : ['all'] });
+}
+function toggleAudience(id) {
+  const cur = new Set(loadActiveGroups());
+  if (cur.has(id)) cur.delete(id); else cur.add(id);
+  saveActiveGroups([...cur]);
+}
+
+function countGroupsForIP(ip, groups = loadIpGroups()) {
+  return groups.filter(g => (g.members || []).includes(ip)).length;
+}
+
+function addIpToGroup(ip, groupId) {
+  saveIpGroups(loadIpGroups().map(g => {
+    if (g.id !== groupId) return g;
+    if ((g.members || []).includes(ip)) return g;
+    return { ...g, members: [...(g.members || []), ip] };
+  }));
+}
+function removeIpFromGroup(ip, groupId) {
+  saveIpGroups(loadIpGroups().map(g =>
+    g.id === groupId ? { ...g, members: (g.members || []).filter(x => x !== ip) } : g
+  ));
+}
+
+function createIpGroup(name) {
+  const trimmed = (name || '').trim();
+  if (!trimmed) return null;
+  const id = 'ipgroup:' + Math.random().toString(36).slice(2, 8) + Date.now().toString(36);
+  saveIpGroups([...loadIpGroups(), { id, name: trimmed, members: [] }]);
+  return id;
+}
+function deleteIpGroup(id) {
+  saveIpGroups(loadIpGroups().filter(g => g.id !== id));
+  // Remove the deleted group from the active audience set.
+  const next = loadActiveGroups().filter(x => x !== id);
+  saveActiveGroups(next.length ? next : ['all']);
+}
+function renameIpGroup(id, newName) {
+  const trimmed = (newName || '').trim();
+  if (!trimmed) return;
+  saveIpGroups(loadIpGroups().map(g => g.id === id ? { ...g, name: trimmed } : g));
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// IP / audience management UI
+// ════════════════════════════════════════════════════════════════════════════
+let _bulkSelectedIps = new Set();
+let _bulkFilter      = '__all__';   // '__all__' | '__ungrouped__' | groupId
+
+function renderIpManagement() {
+  renderIpGroupsList();
+  refreshGroupDropdowns();
+  renderIpBulkList();
+}
+
+function renderIpGroupsList() {
+  const host = document.getElementById('ipg-list');
+  if (!host) return;
+  const groups = loadIpGroups();
+  host.innerHTML = '';
+  if (!groups.length) {
+    host.innerHTML = '<div class="ipg-empty">No groups yet — add one below.</div>';
+    return;
+  }
+  for (const g of groups) {
+    const row = document.createElement('div');
+    row.className = 'ipg-row';
+    const memberCount = (g.members || []).length;
+    row.innerHTML = `
+      <span class="name">${escapeHtml(g.name)}</span>
+      <span class="count">${memberCount} IP${memberCount === 1 ? '' : 's'}</span>
+      <button class="rename" data-id="${escapeHtml(g.id)}" data-tip="Rename">✎</button>
+      <button class="rm"     data-id="${escapeHtml(g.id)}" data-tip="Delete (IPs themselves are kept)">✕</button>
+    `;
+    host.appendChild(row);
+  }
+  host.querySelectorAll('.rename').forEach(b => b.addEventListener('click', () => {
+    const cur = (loadIpGroups().find(g => g.id === b.dataset.id) || {}).name || '';
+    const next = prompt('Rename group:', cur);
+    if (next == null) return;
+    renameIpGroup(b.dataset.id, next);
+    renderIpManagement();
+  }));
+  host.querySelectorAll('.rm').forEach(b => b.addEventListener('click', () => {
+    const g = loadIpGroups().find(x => x.id === b.dataset.id);
+    if (!g) return;
+    if (!confirm(`Delete group "${g.name}"? IPs in it stay in your master list.`)) return;
+    deleteIpGroup(b.dataset.id);
+    renderIpManagement();
+    refreshActiveAudienceSelectors();
+  }));
+}
+
+// Builds the set of options shown in every group <select>/chip surface.
+function refreshGroupDropdowns() {
+  const groups = loadIpGroups();
+
+  // Audience surfaces — toolbar uses compact pill chips, drawer uses a
+  // labelled checkbox list for clarity.
+  renderAudienceChips('audience-chips');
+  renderAudienceChecks('audience-checks-drawer');
+  updateAudienceSummary();
+
+  // Filter dropdown for the bulk list
+  const filterSel = document.getElementById('ip-filter');
+  if (filterSel) {
+    let html = `<option value="__all__">All (${loadAllIPs().length})</option>`;
+    html    += `<option value="__ungrouped__">Ungrouped (${countUngroupedIPs()})</option>`;
+    for (const g of groups) {
+      html += `<option value="${escapeHtml(g.id)}">${escapeHtml(g.name)} (${(g.members||[]).length})</option>`;
+    }
+    filterSel.innerHTML = html;
+    filterSel.value = _bulkFilter;
+  }
+
+  // Bulk-action target group dropdown
+  const bulkTarget = document.getElementById('ip-bulk-target');
+  if (bulkTarget) {
+    if (!groups.length) {
+      bulkTarget.innerHTML = '<option value="">(no groups — add one above)</option>';
+    } else {
+      bulkTarget.innerHTML = groups.map(g => `<option value="${escapeHtml(g.id)}">${escapeHtml(g.name)}</option>`).join('');
+    }
+  }
+
+  // Add-new-IP target group dropdown
+  const newTarget = document.getElementById('ip-new-group-target');
+  if (newTarget) {
+    let html = '<option value="">No group</option>';
+    for (const g of groups) html += `<option value="${escapeHtml(g.id)}">${escapeHtml(g.name)}</option>`;
+    newTarget.innerHTML = html;
+  }
+}
+
+function countUngroupedIPs() {
+  const groups = loadIpGroups();
+  return loadAllIPs().filter(ip => countGroupsForIP(ip, groups) === 0).length;
+}
+
+function visibleIPsForFilter() {
+  const all = loadAllIPs();
+  if (_bulkFilter === '__all__') return all;
+  if (_bulkFilter === '__ungrouped__') {
+    const groups = loadIpGroups();
+    return all.filter(ip => countGroupsForIP(ip, groups) === 0);
+  }
+  const g = loadIpGroups().find(x => x.id === _bulkFilter);
+  if (!g) return all;
+  return (g.members || []).filter(ip => all.includes(ip));
+}
+
+function renderIpBulkList() {
+  const host = document.getElementById('ip-bulk-list');
+  if (!host) return;
+  const visible = visibleIPsForFilter();
+  const groups  = loadIpGroups();
+  host.innerHTML = '';
+  // Prune the selection of anything no longer visible.
+  for (const ip of [..._bulkSelectedIps]) if (!visible.includes(ip)) _bulkSelectedIps.delete(ip);
+
+  if (!visible.length) {
+    host.innerHTML = '<div class="ipg-empty">No IPs in this view.</div>';
+  } else {
+    for (const ip of visible) {
+      const count = countGroupsForIP(ip, groups);
+      const row = document.createElement('div');
+      row.className = 'ipb-row';
+      const badgeClass = count === 0 ? 'in0' : count === 1 ? 'in1' : count === 2 ? 'in2' : 'in3';
+      row.innerHTML = `
+        <input type="checkbox" data-ip="${escapeHtml(ip)}" ${_bulkSelectedIps.has(ip) ? 'checked' : ''}/>
+        <span class="addr">${escapeHtml(ip)}</span>
+        <span class="badge ${badgeClass}" data-tip="In ${count} group${count === 1 ? '' : 's'}">${count}</span>
+        <button class="rm" data-ip="${escapeHtml(ip)}" data-tip="Delete IP (also removes from every group)">✕</button>
+      `;
+      host.appendChild(row);
+    }
+  }
+
+  document.getElementById('ip-visible-count').textContent = `${visible.length} IP${visible.length === 1 ? '' : 's'}`;
+  document.getElementById('ip-select-all').checked = visible.length > 0 && visible.every(ip => _bulkSelectedIps.has(ip));
+  updateBulkSelectionUI();
+
+  host.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.addEventListener('change', () => {
+    if (cb.checked) _bulkSelectedIps.add(cb.dataset.ip);
+    else            _bulkSelectedIps.delete(cb.dataset.ip);
+    document.getElementById('ip-select-all').checked =
+      visible.length > 0 && visible.every(ip => _bulkSelectedIps.has(ip));
+    updateBulkSelectionUI();
+  }));
+  host.querySelectorAll('.rm').forEach(b => b.addEventListener('click', () => {
+    const ip = b.dataset.ip;
+    if (!confirm(`Delete ${ip}? It will be removed from every group.`)) return;
+    saveAllIPs(loadAllIPs().filter(x => x !== ip));
+    saveIpGroups(loadIpGroups().map(g => ({ ...g, members: (g.members || []).filter(x => x !== ip) })));
+    _bulkSelectedIps.delete(ip);
+    renderIpManagement();
+    refreshActiveAudienceSelectors();
+  }));
+}
+
+function updateBulkSelectionUI() {
+  const count = _bulkSelectedIps.size;
+  const el = document.getElementById('ip-sel-count');
+  if (el) el.textContent = `${count} selected`;
+  const actions = document.getElementById('ip-bulk-actions');
+  if (actions) actions.classList.toggle('disabled', count === 0);
+}
+
+function refreshActiveAudienceSelectors() {
+  // The chip render reads loadActiveGroups() directly, so a refresh is enough.
+  refreshGroupDropdowns();
+}
+
+// ── Audience chips (multi-select) ───────────────────────────────────────
+function renderAudienceChips(hostId, opts = {}) {
+  const host = document.getElementById(hostId);
+  if (!host) return;
+  host.classList.toggle('drawer', !!opts.drawer);
+  const active = new Set(loadActiveGroups());
+  const groups = loadIpGroups();
+  const allCount = loadAllIPs().length;
+  const frag = document.createDocumentFragment();
+  // "All" sentinel chip first.
+  frag.appendChild(makeChip('all', `All (${allCount})`, active.has('all'), true));
+  for (const g of groups) {
+    const c = (g.members || []).filter(ip => loadAllIPs().includes(ip)).length;
+    frag.appendChild(makeChip(g.id, `${g.name} (${c})`, active.has(g.id), false));
+  }
+  host.innerHTML = '';
+  host.appendChild(frag);
+}
+
+function makeChip(id, label, on, isAllChip) {
+  const b = document.createElement('button');
+  b.className = 'audience-chip' + (on ? ' on' : '') + (isAllChip ? ' all-chip' : '');
+  b.dataset.id = id;
+  b.textContent = label;
+  b.dataset.tip = isAllChip
+    ? 'Broadcast to every known IP (overrides group selection)'
+    : 'Toggle this audience';
+  b.addEventListener('click', () => {
+    toggleAudience(id);
+    refreshActiveAudienceSelectors();
+    updateAudienceSummary();
+    const ips = loadIPs();
+    setStatus(`Audience: ${describeActiveAudiences()} — ${ips.length} IP${ips.length === 1 ? '' : 's'}`, ips.length ? 'ok' : 'err');
+  });
+  return b;
+}
+
+// Vertical checkbox list rendered into the drawer. "All IPs" sits on its own
+// row at the top with a green accent; below it are one row per group with
+// member counts. Every checkbox toggles independently.
+function renderAudienceChecks(hostId) {
+  const host = document.getElementById(hostId);
+  if (!host) return;
+  const active = new Set(loadActiveGroups());
+  const groups = loadIpGroups();
+  const allCount = loadAllIPs().length;
+
+  const rows = [];
+  rows.push(makeAudienceCheckRow('all', 'All IPs', allCount, active.has('all'), true));
+  if (!groups.length) {
+    const empty = document.createElement('div');
+    empty.style.cssText = 'padding:8px;color:var(--text-dim);font-size:12px;text-align:center;';
+    empty.textContent = 'No groups yet — add some below to enable audience switching.';
+    host.innerHTML = '';
+    host.appendChild(rows[0]);
+    host.appendChild(empty);
+    return;
+  }
+  for (const g of groups) {
+    const c = (g.members || []).filter(ip => loadAllIPs().includes(ip)).length;
+    rows.push(makeAudienceCheckRow(g.id, g.name, c, active.has(g.id), false));
+  }
+
+  host.innerHTML = '';
+  for (const r of rows) host.appendChild(r);
+}
+
+function makeAudienceCheckRow(id, label, count, on, isAll) {
+  const row = document.createElement('label');
+  row.className = 'row' + (on ? ' on' : '') + (isAll ? ' all-row' : '');
+  row.innerHTML = `
+    <input type="checkbox" ${on ? 'checked' : ''} />
+    <span>${escapeHtml(label)}</span>
+    <span class="count">${count} IP${count === 1 ? '' : 's'}</span>
+  `;
+  row.querySelector('input').addEventListener('change', () => {
+    toggleAudience(id);
+    refreshActiveAudienceSelectors();
+    updateAudienceSummary();
+    const ips = loadIPs();
+    setStatus(`Audience: ${describeActiveAudiences()} — ${ips.length} IP${ips.length === 1 ? '' : 's'}`, ips.length ? 'ok' : 'err');
+  });
+  return row;
+}
+
+function describeActiveAudiences() {
+  const active = loadActiveGroups();
+  if (!active.length) return 'none selected';
+  if (active.includes('all')) return 'All';
+  const groups = loadIpGroups();
+  const names = active.map(id => (groups.find(g => g.id === id) || {}).name).filter(Boolean);
+  return names.length ? names.join(' + ') : 'none';
+}
+
+function updateAudienceSummary() {
+  const el = document.getElementById('audience-summary');
+  if (!el) return;
+  const n = loadIPs().length;
+  el.textContent = n ? `→ ${n} IP${n === 1 ? '' : 's'}` : '→ no IPs';
+  el.style.color = n ? '' : 'var(--accent-red)';
+}
+
+// ── Wire up the UI ──────────────────────────────────────────────────────
+document.getElementById('ipg-add-btn').addEventListener('click', () => {
+  const input = document.getElementById('ipg-new');
+  const id = createIpGroup(input.value);
+  if (!id) { setStatus('Group name cannot be empty', 'err'); return; }
+  input.value = '';
+  renderIpManagement();
+  refreshActiveAudienceSelectors();
+});
+document.getElementById('ipg-new').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('ipg-add-btn').click();
+});
+
+document.getElementById('ip-add-btn').addEventListener('click', () => {
+  const input = document.getElementById('host-new');
+  const ip = input.value.trim();
+  if (!ip) return;
+  const all = loadAllIPs();
+  if (!all.includes(ip)) saveAllIPs([...all, ip]);
+  const tgt = document.getElementById('ip-new-group-target').value;
+  if (tgt) addIpToGroup(ip, tgt);
+  input.value = '';
+  renderIpManagement();
+  refreshActiveAudienceSelectors();
+});
+document.getElementById('host-new').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('ip-add-btn').click();
+});
+
+document.getElementById('ip-filter').addEventListener('change', e => {
+  _bulkFilter = e.target.value;
+  _bulkSelectedIps.clear();
+  renderIpBulkList();
+});
+document.getElementById('ip-select-all').addEventListener('change', e => {
+  const visible = visibleIPsForFilter();
+  if (e.target.checked) visible.forEach(ip => _bulkSelectedIps.add(ip));
+  else                  visible.forEach(ip => _bulkSelectedIps.delete(ip));
+  renderIpBulkList();
+});
+document.getElementById('ip-bulk-add-to-btn').addEventListener('click', () => {
+  const tgt = document.getElementById('ip-bulk-target').value;
+  if (!tgt) { setStatus('Create a group first', 'err'); return; }
+  if (!_bulkSelectedIps.size) { setStatus('Select IPs first', 'err'); return; }
+  [..._bulkSelectedIps].forEach(ip => addIpToGroup(ip, tgt));
+  renderIpManagement();
+  refreshActiveAudienceSelectors();
+  setStatus(`Added ${_bulkSelectedIps.size} IP(s) to group`, 'ok');
+});
+document.getElementById('ip-bulk-remove-from-btn').addEventListener('click', () => {
+  const tgt = document.getElementById('ip-bulk-target').value;
+  if (!tgt) { setStatus('Choose a group to remove from', 'err'); return; }
+  if (!_bulkSelectedIps.size) { setStatus('Select IPs first', 'err'); return; }
+  [..._bulkSelectedIps].forEach(ip => removeIpFromGroup(ip, tgt));
+  renderIpManagement();
+  refreshActiveAudienceSelectors();
+  setStatus(`Removed ${_bulkSelectedIps.size} IP(s) from group`, 'ok');
+});
+document.getElementById('ip-bulk-delete-btn').addEventListener('click', () => {
+  if (!_bulkSelectedIps.size) { setStatus('Select IPs first', 'err'); return; }
+  const n = _bulkSelectedIps.size;
+  if (!confirm(`Delete ${n} IP(s) entirely? They'll be removed from every group too.`)) return;
+  const drop = new Set(_bulkSelectedIps);
+  saveAllIPs(loadAllIPs().filter(ip => !drop.has(ip)));
+  saveIpGroups(loadIpGroups().map(g => ({ ...g, members: (g.members || []).filter(ip => !drop.has(ip)) })));
+  _bulkSelectedIps.clear();
+  renderIpManagement();
+  refreshActiveAudienceSelectors();
+  setStatus(`Deleted ${n} IP(s)`, 'ok');
+});
+
+// Audience interactions live on the chip click handlers in makeChip(); the
+// old single-select dropdowns no longer exist.
+
+// Drawer tab switching
+document.querySelectorAll('.drawer-tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.drawer-tab').forEach(x => x.classList.toggle('active', x === t));
+    const wanted = t.dataset.tab;
+    document.querySelectorAll('.drawer-pane').forEach(p => {
+      p.hidden = p.dataset.tab !== wanted;
+    });
+  });
+});
+document.getElementById('ip-export-btn').addEventListener('click', () => {
+  const settings = loadSettings();
+  const payload = { __qlab_settings__: 'v1', ...settings };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'qlab-controller-settings.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  setStatus(`Exported settings (${settings.ipList.length} IPs, ${settings.userGroupings.length} groups)`, 'ok');
+});
+document.getElementById('ip-import-btn').addEventListener('click', () => {
+  document.getElementById('ip-import-file').click();
+});
+document.getElementById('ip-import-file').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      const data = JSON.parse(ev.target.result);
+      // Accept either the full v1 payload or a legacy plain IP array.
+      let next;
+      if (Array.isArray(data) && data.every(x => typeof x === 'string')) {
+        next = { ...loadSettings(), ipList: data.length ? data : [...DEFAULT_IPS] };
+      } else if (data && typeof data === 'object') {
+        next = { ...DEFAULT_SETTINGS, ...data };
+        delete next.__qlab_settings__;
+        if (!Array.isArray(next.ipList) || !next.ipList.length) next.ipList = [...DEFAULT_IPS];
+        if (!Array.isArray(next.userGroupings)) next.userGroupings = [];
+      } else {
+        throw new Error('Unrecognized settings JSON');
+      }
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
+      hydrateSettingsUI();
+      rebuildAndRender();
+      setStatus(`Imported settings — ${next.ipList.length} IPs, ${next.userGroupings.length} groups`, 'ok');
+    } catch (err) {
+      setStatus(`Import failed — ${err.message || 'bad JSON'}`, 'err');
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// OSC send (via local proxy on :8765) — fans out to every saved IP.
+// ════════════════════════════════════════════════════════════════════════════
+async function sendOsc(address, value) {
+  const ips = loadIPs();
+  const port = parseInt(document.getElementById('port').value, 10);
+  if (!ips.length) { setStatus('No IPs configured.', 'err'); return false; }
+
+  // Short abort timeout so a dead proxy fails fast instead of hanging GO.
+  const TIMEOUT_MS = 600;
+  // Fused server: when SERVED over http(s), post to a relative '/send' on the same
+  // origin; when opened as a local file (file://), fall back to a proxy on :8765.
+  const PROXY_URL = location.protocol.startsWith('http') ? '/send' : 'http://127.0.0.1:8765/send';
+  const results = await Promise.allSettled(ips.map(host => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+    return fetch(PROXY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ host, port, address, value }),
+      signal: ctrl.signal,
+    })
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return host; })
+      .catch(err => { throw err; })           // keep rejection within allSettled
+      .finally(() => clearTimeout(timer));
+  }));
+
+  const ok   = results.filter(r => r.status === 'fulfilled').map(r => r.value);
+  const fail = results.filter(r => r.status === 'rejected').map((r, i) => `${ips[i]} (${(r.reason && r.reason.message) || 'failed'})`);
+
+  if (ok.length && !fail.length) {
+    setStatus(`✓ ${address} ${value} → ${ok.join(', ')}:${port}`, 'ok');
+    return true;
+  } else if (ok.length && fail.length) {
+    setStatus(`⚠ ${address} ${value}: ${ok.length}/${ips.length} sent`, 'err');
+    return true;
+  } else {
+    setStatus(`✗ ${address} ${value}: all sends failed — proxy running?`, 'err');
+    return false;
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Cue model — hierarchical. Every node has: id, type, number, name, ...
+// type: 'list' | 'group' | 'osc' | 'audio' | 'video' | 'light' | 'fade' | 'text'
+// Groups/lists have children[].
+// Each leaf has an `oscAddress` and `oscValue` used when fired.
+// ════════════════════════════════════════════════════════════════════════════
+let cueRoot = { id: 'root', type: 'list', name: 'Main Cue List', children: [], expanded: true };
+let selectedIds = new Set();   // all currently selected node ids
+let primaryId   = null;        // the "anchor" — last single-click, used by GO and inspector
+let playingId   = null;
+let flatRows    = [];          // visible rows (post-collapse), populated on render
+
+// `selectedId` is kept as a back-compat alias for any legacy reads.
+function getSelectedId() { return primaryId; }
+
+const ICON = {
+  list:  '☰',
+  group: '⊞',
+  osc:   '⚡',
+  audio: '♪',
+  video: '▦',
+  light: '💡',
+  fade:  '↗',
+  text:  'T',
+};
+
+const TYPE_FROM_ID = (id) => {
+  const s = String(id);
+  if (/^STOP/i.test(s))         return 'fade';
+  if (/SQ/i.test(s))            return 'audio';
+  if (/VQ/i.test(s))            return 'video';
+  if (/LQ/i.test(s))            return 'light';
+  if (/^T_|^TXT/i.test(s))      return 'text';
+  return 'osc';
+};
+
+let _nextId = 1;
+function makeId(prefix) { return `${prefix}_${_nextId++}`; }
+
+// Built-in 16 cues from osc-controller.html, as a top-level group "Main Cues".
+const BUILTIN_CUES = [
+  { n:  1, label: 'Quad VideoPlane',              type: 'video' },
+  { n:  2, label: 'First Signs',                  type: 'video' },
+  { n:  3, label: 'FlipBook Alembic Splash',      type: 'video' },
+  { n:  4, label: 'JoanCrownPivot SFD Particles', type: 'video' },
+  { n:  5, label: 'CommunionBodies Sound',        type: 'audio' },
+  { n:  6, label: 'PolygonmakerRig 1-2',          type: 'video' },
+  { n:  7, label: 'Cue 7',                        type: 'osc'   },
+  { n:  8, label: 'Cue 8',                        type: 'osc'   },
+  { n:  9, label: 'idle',                         type: 'osc'   },
+  { n: 10, label: 'spawn1',                       type: 'osc'   },
+  { n: 11, label: 'taunt',                        type: 'osc'   },
+  { n: 12, label: 'walkdamaged inplace',          type: 'osc'   },
+  { n: 13, label: 'attack1',                      type: 'osc'   },
+  { n: 14, label: 'ground-move inplace',          type: 'osc'   },
+  { n: 15, label: 'standup',                      type: 'osc'   },
+  { n: 16, label: 'deathimpact',                  type: 'osc'   },
+];
+
+function buildBuiltinList() {
+  const list = {
+    id: makeId('grp'), userId: 'group:builtin',
+    type: 'group', name: 'Joan Cues — Video / Objects / Animations',
+    expanded: true, children: [],
+    notes: 'Built-in cues — fires /cue with integer value to extOSC in Unity.',
+  };
+  for (const c of BUILTIN_CUES) {
+    list.children.push({
+      id: makeId('cue'),
+      userId: `cue:builtin:${c.n}`,
+      type: c.type,
+      number: c.n,
+      name: c.label,
+      duration: '00:00.00',
+      preWait: '00:00.00',
+      postWait: '00:00.00',
+      oscAddress: '__cue',     // resolved at fire-time from #address input
+      oscValue: c.n,
+      armed: true,
+      notes: '',
+    });
+  }
+  return list;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Audio CSV parsing — copied/adapted from osc-controller.html.
+// ════════════════════════════════════════════════════════════════════════════
+const AUDIO_CSV_HEADER_KEYS = new Set(['BaseUrl', 'CsvVersion', 'CueId']);
+
+function audioGroupKey(id) {
+  if (typeof id === 'number') return String(id);
+  const m = String(id).match(/^([A-Za-z]+)_[A-Za-z]+(\d+(?:\.\d+)?)$/);
+  return m ? `${m[1]}_${m[2]}` : String(id);
+}
+
+function parseAudioCsv(text) {
+  const map = new Map();
+  const order = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    const cells = line.split(',');
+    const rawId = (cells[0] || '').trim();
+    if (!rawId || AUDIO_CSV_HEADER_KEYS.has(rawId)) continue;
+    const asInt = parseInt(rawId, 10);
+    const id = (Number.isFinite(asInt) && String(asInt) === rawId) ? asInt : rawId;
+    const notes  = (cells[1] || '').trim();
+    const stem   = (cells[2] || '').trim();
+    const action = (cells[4] || '').trim();
+    const vol    = (cells[5] || '').trim();
+    const speed  = (cells[6] || '').trim();
+    let entry = map.get(id);
+    if (!entry) { entry = { id, notes: '', stems: [] }; map.set(id, entry); order.push(id); }
+    if (notes && !entry.notes) entry.notes = notes;
+    entry.stems.push({ stem, action, vol, speed });
+  }
+  return order.map(k => map.get(k)).sort((a, b) => {
+    const an = typeof a.id === 'number', bn = typeof b.id === 'number';
+    if (an && bn) return a.id - b.id;
+    if (an) return -1;
+    if (bn) return 1;
+    return String(a.id).localeCompare(String(b.id));
+  });
+}
+
+function buildAudioGroups(cues) {
+  const map = new Map();
+  const order = [];
+  for (const c of cues) {
+    const key = audioGroupKey(c.id);
+    let g = map.get(key);
+    if (!g) {
+      g = { key, ids: [], notes: '', stems: [],
+            numeric: typeof c.id === 'number',
+            sortNum: typeof c.id === 'number' ? c.id : null };
+      map.set(key, g); order.push(key);
+    }
+    g.ids.push(c.id);
+    if (c.notes && !g.notes) g.notes = c.notes;
+    for (const s of c.stems) g.stems.push(s);
+  }
+  return order.map(k => map.get(k)).sort(compareAudioGroups);
+}
+function compareAudioGroups(a, b) {
+  if (a.numeric && b.numeric) return a.sortNum - b.sortNum;
+  if (a.numeric) return -1;
+  if (b.numeric) return 1;
+  const na = String(a.key).replace(/^([A-Za-z]+)_[A-Za-z]+(?=\d)/, '$1_');
+  const nb = String(b.key).replace(/^([A-Za-z]+)_[A-Za-z]+(?=\d)/, '$1_');
+  return na.localeCompare(nb, undefined, { numeric: true, sensitivity: 'base' });
+}
+
+// Convert flat audio-groups into a hierarchical tree:
+//   list "Audio Cues"
+//     ├─ group "200s"      (numeric buckets of 100)
+//     ├─ group "300s"
+//     ├─ group "A"         (alpha-prefix buckets, e.g. A_…)
+//     └─ group "B"
+function buildAudioCuesNode(groups) {
+  const list = {
+    id: makeId('grp'),
+    userId: 'group:audio',
+    type: 'group',
+    name: 'Audio Cues',
+    expanded: true,
+    children: [],
+    notes: 'Loaded from CSV. Fires /audio/cue with the group key (string) or integer.',
+  };
+
+  // Bucket by section.
+  const sections = new Map(); // key -> { sortValue, title, items[] }
+  for (const g of groups) {
+    let secKey, sortValue, title;
+    if (g.numeric) {
+      const bucket = Math.floor(g.sortNum / 100) * 100;
+      secKey = `n${bucket}`;
+      sortValue = bucket;
+      title = `${bucket}s`;
+    } else {
+      const m = String(g.key).match(/^[A-Za-z_]+/);
+      const prefix = m ? m[0] : 'misc';
+      secKey = `s${prefix}`;
+      sortValue = Number.POSITIVE_INFINITY;
+      title = prefix;
+    }
+    if (!sections.has(secKey)) sections.set(secKey, { sortValue, title, items: [] });
+    sections.get(secKey).items.push(g);
+  }
+
+  const sortedKeys = [...sections.keys()].sort((a, b) => {
+    const ma = sections.get(a), mb = sections.get(b);
+    if (ma.sortValue !== mb.sortValue) return ma.sortValue - mb.sortValue;
+    return ma.title.localeCompare(mb.title);
+  });
+
+  for (const key of sortedKeys) {
+    const sec = sections.get(key);
+    const groupNode = {
+      id: makeId('grp'),
+      userId: `group:bucket:${key}`,   // stable across CSV reloads
+      type: 'group',
+      name: sec.title,   // count is rendered live as a badge by renderCueList
+      expanded: false,
+      children: [],
+      notes: '',
+    };
+    for (const g of sec.items) {
+      const isVQ    = /VQ/i.test(String(g.key)) || g.ids.some(id => /VQ/i.test(String(id)));
+      const isSQ    = /SQ/i.test(String(g.key)) || g.ids.some(id => /SQ/i.test(String(id)));
+      const isStop  = /STOP/i.test(String(g.key));
+      const label   = g.notes && g.notes.length
+        ? g.notes
+        : (g.stems.map(s => s.stem).filter(Boolean).slice(0, 2).join(', ') || '—');
+      const type    = isStop ? 'fade' : isVQ ? 'video' : isSQ ? 'audio' : 'osc';
+      groupNode.children.push({
+        id: makeId('cue'),
+        userId: `cue:audio:${g.key}`,
+        type,
+        number: g.key,
+        name: label,
+        duration: estimateDuration(g),
+        preWait: '00:00.00',
+        postWait: '00:00.00',
+        oscAddress: '__audio',
+        oscValue: g.numeric ? g.sortNum : g.key,
+        armed: true,
+        notes: g.notes || '',
+        stems: g.stems,
+      });
+    }
+    list.children.push(groupNode);
+  }
+
+  return list;
+}
+
+function estimateDuration(g) {
+  // We don't actually know stem durations from the CSV; show a placeholder.
+  if (!g.stems || !g.stems.length) return '00:00.00';
+  return '—';
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Build initial tree, then layer saved user-groupings on top.
+// ════════════════════════════════════════════════════════════════════════════
+let _currentAudioGroups = null;   // remembered so we can rebuild without re-fetch
+function rebuildTree({ audioGroups = _currentAudioGroups } = {}) {
+  _currentAudioGroups = audioGroups || null;
+  cueRoot.children = [];
+  cueRoot.children.push(buildBuiltinList());
+  if (audioGroups && audioGroups.length) {
+    cueRoot.children.push(buildAudioCuesNode(audioGroups));
+  }
+  applyUserGroupings();
+}
+
+function findByUserId(userId, node = cueRoot) {
+  if (!userId) return null;
+  if (node.userId === userId) return node;
+  if (!node.children) return null;
+  for (const c of node.children) { const r = findByUserId(userId, c); if (r) return r; }
+  return null;
+}
+
+// Apply saved user-defined groupings in order. Each one wraps a set of sibling
+// nodes (referenced by their stable userIds) inside a new group, inserted at
+// the position of the first member. References that no longer resolve (e.g.
+// after a CSV change) are silently dropped.
+function applyUserGroupings() {
+  const groupings = (loadSettings().userGroupings || []);
+  for (const g of groupings) {
+    const parent = findByUserId(g.parentRef);
+    if (!parent || !parent.children) continue;
+    const indexes = [];
+    for (const ref of g.memberRefs) {
+      const idx = parent.children.findIndex(c => c.userId === ref);
+      if (idx >= 0) indexes.push(idx);
+    }
+    if (!indexes.length) continue;
+    indexes.sort((a, b) => a - b);
+    const memberNodes = indexes.map(i => parent.children[i]);
+    const insertPos = indexes[0];
+    // Splice from the highest index down so positions stay stable.
+    indexes.slice().sort((a, b) => b - a).forEach(i => parent.children.splice(i, 1));
+    const wrap = {
+      id: makeId('grp'),
+      userId: g.id,
+      type: 'group',
+      name: g.name || 'Group',
+      expanded: g.expanded !== false,
+      children: memberNodes,
+      isUserGroup: true,
+      notes: '',
+    };
+    parent.children.splice(insertPos, 0, wrap);
+  }
+}
+
+// Capture / restore the editor's view state (selection + group expansion +
+// scroll position) across tree rebuilds, keyed by stable userIds so it
+// survives even when node ids are regenerated.
+function captureViewState() {
+  const primaryNode = primaryId ? findById(primaryId) : null;
+  const selectedNodes = [...selectedIds].map(id => findById(id)).filter(Boolean);
+  const expanded = {};   // userId -> true/false
+  (function walk(n) {
+    if (n.userId && n.children) expanded[n.userId] = !!n.expanded;
+    if (n.children) n.children.forEach(walk);
+  })(cueRoot);
+  const list = document.getElementById('cue-list');
+  return {
+    primaryUid:   primaryNode ? primaryNode.userId : null,
+    selectedUids: selectedNodes.map(n => n.userId).filter(Boolean),
+    expanded,
+    scrollTop:    list ? list.scrollTop : 0,
+  };
+}
+
+function restoreViewState(state) {
+  // Expansion first, since selection/scroll depend on the post-expansion layout.
+  (function walk(n) {
+    if (n.userId && n.children && Object.prototype.hasOwnProperty.call(state.expanded || {}, n.userId)) {
+      n.expanded = state.expanded[n.userId];
+    }
+    if (n.children) n.children.forEach(walk);
+  })(cueRoot);
+
+  selectedIds.clear();
+  primaryId = null;
+  for (const uid of state.selectedUids || []) {
+    const n = findByUserId(uid);
+    if (n) selectedIds.add(n.id);
+  }
+  if (state.primaryUid) {
+    const n = findByUserId(state.primaryUid);
+    if (n) primaryId = n.id;
+  }
+}
+
+// Back-compat names — older callers still reference these.
+function captureSelectionState() { return captureViewState(); }
+function restoreSelectionState(s) { restoreViewState(s); }
+
+function rebuildAndRender(opts = {}) {
+  const state = captureViewState();
+  rebuildTree(opts);
+  restoreViewState(state);
+  renderCueList();
+  renderSidebar();
+  if (!primaryId) {
+    const first = flatRows.find(r => !r.node.children);
+    if (first) selectSingle(first.node.id);
+  }
+  // Restore scroll after the DOM has been laid out.
+  const list = document.getElementById('cue-list');
+  if (list) list.scrollTop = state.scrollTop || 0;
+}
+
+rebuildTree();
+
+// ════════════════════════════════════════════════════════════════════════════
+// Rendering — main cue table.
+// ════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════
+// Color palette — 8 picker colors that blend with the cue's base type color
+// so a "green" tag on an audio cue lands bluish-green, while the same tag on
+// a video cue lands orange-green. User color choices are persisted in
+// settings.userColors keyed by stable userId.
+// ════════════════════════════════════════════════════════════════════════════
+const PALETTE = [
+  { key: 'maroon', hex: '#5a0f10' },
+  { key: 'green',  hex: '#4ea784' },
+  { key: 'red',    hex: '#d44952' },
+  { key: 'gold',   hex: '#d8ae3d' },
+  { key: 'indigo', hex: '#3c40a0' },
+];
+const PALETTE_BY_KEY = Object.fromEntries(PALETTE.map(p => [p.key, p.hex]));
+
+// Base background per cue type (mirrors the CSS --row-* defaults).
+const TYPE_BG = {
+  audio: '#283c5a',
+  video: '#4a3520',
+  light: '#5a2828',
+  fade:  '#3a2e4c',
+  osc:   '#2a2a2a',
+  text:  '#2a2a2a',
+  group: '#1d1d1d',
+};
+
+function lerpHex(a, b, t) {
+  const pa = parseInt(a.slice(1), 16);
+  const pb = parseInt(b.slice(1), 16);
+  const ar = (pa >> 16) & 0xff, ag = (pa >> 8) & 0xff, ab = pa & 0xff;
+  const br = (pb >> 16) & 0xff, bg = (pb >> 8) & 0xff, bb = pb & 0xff;
+  const r = Math.round(ar + (br - ar) * t);
+  const g = Math.round(ag + (bg - ag) * t);
+  const b2 = Math.round(ab + (bb - ab) * t);
+  return '#' + ((r << 16) | (g << 8) | b2).toString(16).padStart(6, '0');
+}
+
+// Apply the user's chosen color tag (if any) by mixing it 55% into the
+// cue's base type color. The base for groups is the group bg; for user
+// groups it's their distinct purple so they stay distinguishable.
+function applyUserColor(row, node) {
+  if (!node.userId) return;
+  const colors = loadSettings().userColors || {};
+  const colorKey = colors[node.userId];
+  if (!colorKey || !PALETTE_BY_KEY[colorKey]) return;
+  const base =
+    node.isUserGroup ? '#2a2438'
+    : node.children  ? '#1d1d1d'
+    : TYPE_BG[node.type] || '#2a2a2a';
+  const blended = lerpHex(base, PALETTE_BY_KEY[colorKey], 0.55);
+  row.style.backgroundColor = blended;
+}
+
+function leafCount(node) {
+  if (!node.children) return 1;
+  let n = 0;
+  for (const c of node.children) n += leafCount(c);
+  return n;
+}
+
+function flatten(node, depth, out) {
+  if (node !== cueRoot) {
+    out.push({ node, depth });
+    if (node.children && !node.expanded) return; // collapsed: skip children
+  }
+  if (node.children) {
+    for (const c of node.children) flatten(c, depth + (node === cueRoot ? 0 : 1), out);
+  }
+}
+
+function renderCueList() {
+  flatRows = [];
+  flatten(cueRoot, 0, flatRows);
+  const body = document.getElementById('cl-body');
+  body.innerHTML = '';
+
+  for (const { node, depth } of flatRows) {
+    const row = document.createElement('div');
+    const isGroup = !!node.children;
+    const type = isGroup ? 'group' : node.type;
+    row.className = `cl-row depth-${depth} ${type}`;
+    if (isGroup && !node.expanded)  row.classList.add('collapsed');
+    if (selectedIds.has(node.id))   row.classList.add('selected');
+    if (node.id === primaryId)      row.classList.add('primary');
+    if (node.id === playingId)      row.classList.add('playing');
+    if (node.isUserGroup)           row.classList.add('user-group');
+    if (node.armed === false)       row.classList.add('armed-no');
+    row.dataset.id = node.id;
+
+    row.style.setProperty('--depth', depth);
+
+    // One vertical guide line per nesting level, positioned inside the name column.
+    // Name column starts at x = 32 + 110 = 142 px. Each level steps +20 px in
+    // lockstep with .name-cell's padding so guides line up with the indent.
+    let guides = '';
+    for (let d = 0; d < depth; d++) {
+      guides += `<span class="indent-guide" style="left:${142 + d * 20}px"></span>`;
+    }
+
+    const disc = isGroup ? '<span class="disclosure">▾</span>' : '';
+    const countBadge = isGroup ? ` <span class="group-count">${leafCount(node)}</span>` : '';
+
+    // Apply user-color tag (blended with the type's base color).
+    applyUserColor(row, node);
+
+    row.innerHTML = `
+      ${guides}
+      <div class="icon-cell ${type}">${ICON[type] || '·'}</div>
+      <div class="num-cell">${node.number != null ? escapeHtml(String(node.number)) : ''}</div>
+      <div class="name-cell">${disc}${escapeHtml(node.name || '')}${countBadge}</div>
+      <div class="time-cell">${escapeHtml(node.duration || '')}</div>
+    `;
+
+    row.addEventListener('click', e => {
+      // Clicking the disclosure triangle toggles a group's expansion.
+      if (isGroup && e.target.closest('.disclosure')) {
+        node.expanded = !node.expanded;
+        renderCueList();
+        return;
+      }
+      if (e.shiftKey)              extendSelect(node.id);
+      else if (e.ctrlKey || e.metaKey) toggleSelect(node.id);
+      else                         selectSingle(node.id);
+    });
+    row.addEventListener('dblclick', () => {
+      if (isGroup) {
+        node.expanded = !node.expanded;
+        renderCueList();
+      } else {
+        fireCue(node);
+      }
+    });
+    body.appendChild(row);
+  }
+
+  // Total leaf count.
+  let total = 0; (function walk(n){ if (n.children) n.children.forEach(walk); else total++; })(cueRoot);
+  document.getElementById('cue-count').textContent = `${total} cues in ${cueRoot.children.length} lists`;
+}
+
+function renderSidebar() {
+  const host = document.getElementById('sb-body');
+  host.innerHTML = '';
+  for (const top of cueRoot.children) {
+    const item = document.createElement('div');
+    item.className = 'sb-tree-item';
+    const count = (function(){ let n = 0; (function w(x){ if (x.children) x.children.forEach(w); else n++; })(top); return n; })();
+    item.innerHTML = `<span class="chev">▾</span><span>${escapeHtml(top.name)}</span><span style="margin-left:auto;color:var(--text-dim);">${count}</span>`;
+    item.addEventListener('click', () => {
+      const first = (function find(n){ if (!n.children) return n; for (const c of n.children) { const r = find(c); if (r) return r; } return null; })(top);
+      if (first) { select(first.id); scrollSelectedIntoView(); }
+    });
+    host.appendChild(item);
+  }
+}
+
+function findById(id, node = cueRoot) {
+  if (node.id === id) return node;
+  if (!node.children) return null;
+  for (const c of node.children) { const r = findById(id, c); if (r) return r; }
+  return null;
+}
+
+function selectSingle(id) {
+  selectedIds.clear();
+  if (id) selectedIds.add(id);
+  primaryId = id || null;
+  renderCueList();
+  updateInspector();
+}
+// Back-compat shim — many callers still say `select(id)`.
+function select(id) { selectSingle(id); }
+
+function extendSelect(toId) {
+  if (!primaryId) { selectSingle(toId); return; }
+  const fromIdx = flatRows.findIndex(r => r.node.id === primaryId);
+  const toIdx   = flatRows.findIndex(r => r.node.id === toId);
+  if (fromIdx < 0 || toIdx < 0) { selectSingle(toId); return; }
+  const [a, b] = fromIdx <= toIdx ? [fromIdx, toIdx] : [toIdx, fromIdx];
+  selectedIds.clear();
+  for (let i = a; i <= b; i++) selectedIds.add(flatRows[i].node.id);
+  // primary stays where it was (anchor)
+  renderCueList();
+  updateInspector();
+}
+
+function toggleSelect(id) {
+  if (selectedIds.has(id)) {
+    selectedIds.delete(id);
+    if (primaryId === id) primaryId = [...selectedIds][0] || null;
+  } else {
+    selectedIds.add(id);
+    primaryId = id;
+  }
+  renderCueList();
+  updateInspector();
+}
+
+function scrollSelectedIntoView() {
+  const el = document.querySelector('.cl-row.primary') || document.querySelector('.cl-row.selected');
+  if (el) el.scrollIntoView({ block: 'nearest' });
+}
+
+function updateInspector() {
+  const node = primaryId ? findById(primaryId) : null;
+  if (!node) {
+    document.getElementById('hdr-num').textContent = '—';
+    document.getElementById('hdr-label').textContent = 'No cue selected';
+    document.getElementById('hdr-notes').textContent = '—';
+  } else {
+    document.getElementById('hdr-num').textContent   = node.number != null ? String(node.number) : '·';
+    document.getElementById('hdr-label').textContent = node.name || '(unnamed)';
+    document.getElementById('hdr-notes').textContent = node.notes ? `"${node.notes}"` : '—';
+  }
+  renderColorStrip();
+  renderStemsTable();
+}
+
+// ── Inspector color strip — palette swatches that tag selected cues ─────
+function buildColorStrip() {
+  const strip = document.getElementById('insp-color-strip');
+  const hint  = document.getElementById('insp-color-hint');
+  for (const { key, hex } of PALETTE) {
+    const b = document.createElement('button');
+    b.className = 'swatch';
+    b.style.background = hex;
+    b.dataset.color = key;
+    b.title = key.charAt(0).toUpperCase() + key.slice(1);
+    strip.insertBefore(b, hint);
+  }
+  strip.addEventListener('click', e => {
+    const btn = e.target.closest('.swatch');
+    if (!btn) return;
+    setColorForSelection(btn.dataset.color || null);
+  });
+}
+
+function renderColorStrip() {
+  const strip = document.getElementById('insp-color-strip');
+  const hint  = document.getElementById('insp-color-hint');
+  // Resolve the userIds we'd actually tag — every selected node with a stable id.
+  const targets = [...selectedIds].map(id => findById(id)).filter(n => n && n.userId);
+  const disabled = targets.length === 0;
+  strip.querySelectorAll('.swatch').forEach(b => b.disabled = disabled);
+  if (disabled) {
+    hint.textContent = 'Select a cue (or group) to tag it';
+    strip.querySelectorAll('.swatch.active').forEach(b => b.classList.remove('active'));
+    return;
+  }
+  // Show which palette key is currently applied (if all targets share one).
+  const colors = loadSettings().userColors || {};
+  const keys = new Set(targets.map(n => colors[n.userId] || ''));
+  const sameKey = keys.size === 1 ? [...keys][0] : null;
+  strip.querySelectorAll('.swatch').forEach(b => {
+    b.classList.toggle('active', sameKey != null && (b.dataset.color === sameKey));
+  });
+  hint.textContent = targets.length === 1
+    ? `1 cue (${targets[0].name || targets[0].number || ''})`
+    : `${targets.length} cues`;
+}
+
+function setColorForSelection(key) {
+  const targets = [...selectedIds].map(id => findById(id)).filter(n => n && n.userId);
+  if (!targets.length) return;
+  const settings = loadSettings();
+  const colors = { ...(settings.userColors || {}) };
+  for (const n of targets) {
+    if (key) colors[n.userId] = key;
+    else     delete colors[n.userId];
+  }
+  saveSettings({ userColors: colors });
+  renderCueList();
+  renderColorStrip();
+  setStatus(key ? `Tagged ${targets.length} cue(s) "${key}"` : `Cleared color on ${targets.length} cue(s)`, 'ok');
+}
+
+buildColorStrip();
+
+// Show stems of the currently-playing cue. If none playing, fall back to the
+// selected cue so the user can preview what would fire.
+function renderStemsTable() {
+  const playing  = playingId ? findById(playingId) : null;
+  const selected = primaryId ? findById(primaryId) : null;
+  const node     = playing || selected;
+  const host     = document.getElementById('insp-body');
+  const nameEl   = document.getElementById('insp-active-name');
+
+  if (!node || node.children) {
+    nameEl.textContent = node ? `${node.name} (group)` : '—';
+    host.innerHTML = '<div class="stems-empty">No active cue.</div>';
+    return;
+  }
+
+  const label = `${node.number ?? ''} — ${node.name || ''}`;
+  nameEl.textContent = playing ? `▶ ${label}` : `${label} (selected)`;
+
+  const stems = node.stems || [];
+  if (!stems.length) {
+    host.innerHTML = '<div class="stems-empty">This cue has no CSV stems (built-in OSC cue).</div>';
+    return;
+  }
+
+  const rows = stems.map(s => `
+    <tr>
+      <td>${escapeHtml(s.stem || '')}</td>
+      <td class="dim">${escapeHtml(s.action || '')}</td>
+      <td class="dim">${escapeHtml(s.vol || '')}</td>
+      <td class="dim">${escapeHtml(s.speed || '')}</td>
+    </tr>
+  `).join('');
+
+  host.innerHTML = `
+    <table class="stems-table">
+      <thead>
+        <tr><th>Stem</th><th>Action</th><th>Vol</th><th>Speed</th></tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Firing cues + GO advance behavior.
+// ════════════════════════════════════════════════════════════════════════════
+async function fireCue(node) {
+  if (!node || node.children) return false;
+  if (node.armed === false) { setStatus(`Cue ${node.number} is disarmed`, 'err'); return false; }
+  let addr = node.oscAddress;
+  if (addr === '__cue')   addr = document.getElementById('address').value.trim() || '/cue';
+  if (addr === '__audio') addr = document.getElementById('audio-address').value.trim() || '/audio/cue';
+  const ok = await sendOsc(addr, node.oscValue);
+  if (ok) {
+    playingId = node.id;
+    renderCueList();
+    refreshActiveSidebar();
+    renderStemsTable();
+  }
+  return ok;
+}
+
+function advanceSelection() {
+  const idx = flatRows.findIndex(r => r.node.id === primaryId);
+  if (idx < 0) return;
+  for (let i = idx + 1; i < flatRows.length; i++) {
+    if (!flatRows[i].node.children) { select(flatRows[i].node.id); scrollSelectedIntoView(); return; }
+  }
+}
+
+async function doGo() {
+  const node = primaryId ? findById(primaryId) : null;
+  if (!node) {
+    // Auto-select the first leaf.
+    const first = flatRows.find(r => !r.node.children);
+    if (first) { select(first.node.id); scrollSelectedIntoView(); }
+    return;
+  }
+  if (node.children) {
+    node.expanded = true;
+    renderCueList();
+    // Drop selection into first child leaf.
+    const child = (function find(n){ if (!n.children) return n; for (const c of n.children) { const r = find(c); if (r) return r; } return null; })(node);
+    if (child) select(child.id);
+    return;
+  }
+  // Fire-and-forget so the UI advances instantly even if the proxy is slow / down.
+  fireCue(node).catch(() => {});
+  advanceSelection();
+}
+
+document.getElementById('go-btn').addEventListener('click', doGo);
+document.getElementById('big-stop-btn').addEventListener('click', stopAll);
+document.getElementById('stop-all-btn').addEventListener('click', stopAll);
+document.getElementById('big-ff-btn').addEventListener('click', fastForward);
+
+// ── Scrub controls — send /audio/jump (relative) or /audio/seek (absolute).
+// Wrap-around / clamp-at-zero behavior lives in Unity (AudioTransport.cs).
+function readScrubSeconds() {
+  const v = parseFloat(document.getElementById('scrub-seconds').value);
+  if (!Number.isFinite(v)) { setStatus('Enter a number (e.g. 3.5 or -2.1)', 'err'); return null; }
+  return v;
+}
+document.getElementById('scrub-jump-btn').addEventListener('click', () => {
+  const v = readScrubSeconds(); if (v == null) return;
+  sendOsc('/audio/jump', v);
+});
+document.getElementById('scrub-set-btn').addEventListener('click', () => {
+  const v = readScrubSeconds(); if (v == null) return;
+  sendOsc('/audio/seek', v);
+});
+// Enter in the number field fires Advance (the relative jump is the more
+// common operation; users can still click Set explicitly).
+document.getElementById('scrub-seconds').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('scrub-jump-btn').click();
+});
+
+// ── Fast forward ─────────────────────────────────────────────────────────
+// Fires every leaf row between the first and last selected (inclusive),
+// pacing them by the user-configurable delay. Sparse selections are
+// expanded to the full intervening range. STOP cancels the sequence.
+let _ffActive = false;
+async function fastForward() {
+  if (_ffActive) return;
+
+  const sel = flatRows
+    .map((r, i) => ({ r, i }))
+    .filter(({ r }) => selectedIds.has(r.node.id) && !r.node.children);
+  if (sel.length < 1) {
+    setStatus('Select at least one cue (use Shift-click to set the range end)', 'err');
+    return;
+  }
+  const firstIdx = sel[0].i;
+  const lastIdx  = sel[sel.length - 1].i;
+  const range = [];
+  for (let i = firstIdx; i <= lastIdx; i++) {
+    const n = flatRows[i].node;
+    if (!n.children) range.push(n);
+  }
+  if (!range.length) return;
+
+  const delay = Math.max(0, loadSettings().ffDelay | 0);
+  _ffActive = true;
+  const btn = document.getElementById('big-ff-btn');
+  btn.classList.add('running');
+  setStatus(`Fast-forwarding ${range.length} cues @ ${delay}ms…`, '');
+
+  try {
+    for (let k = 0; k < range.length; k++) {
+      if (!_ffActive) { setStatus(`Fast-forward cancelled after ${k} cue(s)`, 'err'); break; }
+      selectSingle(range[k].id);
+      scrollSelectedIntoView();
+      fireCue(range[k]).catch(() => {});
+      if (k < range.length - 1) await new Promise(r => setTimeout(r, delay));
+    }
+    if (_ffActive) setStatus(`Fast-forward complete — fired ${range.length} cues`, 'ok');
+  } finally {
+    _ffActive = false;
+    btn.classList.remove('running');
+  }
+}
+
+const STOP_ALL_CUE = 'STOP_ALL';
+async function stopAll() {
+  _ffActive = false;   // also cancel any in-progress fast-forward
+  const addr = document.getElementById('audio-address').value.trim() || '/audio/cue';
+  const ok = await sendOsc(addr, STOP_ALL_CUE);
+  if (ok) { playingId = null; renderCueList(); refreshActiveSidebar(); renderStemsTable(); }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Keyboard nav
+// ════════════════════════════════════════════════════════════════════════════
+document.addEventListener('keydown', e => {
+  const tag = (e.target.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+  // Ctrl/Cmd+G group · Ctrl/Cmd+Shift+G ungroup
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'g' || e.key === 'G')) {
+    e.preventDefault();
+    if (e.shiftKey) ungroupSelected(); else makeGroup();
+    return;
+  }
+  if (e.key === 'F2') { e.preventDefault(); renameSelectedGroup(); return; }
+  if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); doGo(); return; }
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    const idx = flatRows.findIndex(r => r.node.id === primaryId);
+    if (idx < flatRows.length - 1) { select(flatRows[idx + 1].node.id); scrollSelectedIntoView(); }
+    else if (idx === -1 && flatRows.length) { select(flatRows[0].node.id); scrollSelectedIntoView(); }
+    return;
+  }
+  if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    const idx = flatRows.findIndex(r => r.node.id === primaryId);
+    if (idx > 0) { select(flatRows[idx - 1].node.id); scrollSelectedIntoView(); }
+    return;
+  }
+  if (e.key === 'ArrowRight') {
+    const node = primaryId ? findById(primaryId) : null;
+    if (node && node.children && !node.expanded) { node.expanded = true; renderCueList(); }
+    return;
+  }
+  if (e.key === 'ArrowLeft') {
+    const node = primaryId ? findById(primaryId) : null;
+    if (node && node.children && node.expanded) { node.expanded = false; renderCueList(); }
+    return;
+  }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Expand / collapse all
+// ════════════════════════════════════════════════════════════════════════════
+function setExpandedAll(value) {
+  (function walk(n) { if (n.children) { if (n !== cueRoot) n.expanded = value; n.children.forEach(walk); } })(cueRoot);
+  renderCueList();
+}
+document.getElementById('tb-expand-all').addEventListener('click', () => setExpandedAll(true));
+document.getElementById('tb-collapse-all').addEventListener('click', () => setExpandedAll(false));
+
+// ════════════════════════════════════════════════════════════════════════════
+// Settings drawer
+// ════════════════════════════════════════════════════════════════════════════
+function openDrawer()  { document.getElementById('drawer').classList.add('open'); document.getElementById('drawer-shade').classList.add('open'); }
+function closeDrawer() { document.getElementById('drawer').classList.remove('open'); document.getElementById('drawer-shade').classList.remove('open'); }
+document.getElementById('drawer-close').addEventListener('click', closeDrawer);
+document.getElementById('drawer-shade').addEventListener('click', closeDrawer);
+document.getElementById('tb-settings').addEventListener('click', openDrawer);
+document.getElementById('sb-open-window').addEventListener('click', openDrawer);
+
+// ════════════════════════════════════════════════════════════════════════════
+// CSV load
+// ════════════════════════════════════════════════════════════════════════════
+async function loadAudioCsv() {
+  const url = document.getElementById('audio-csv-url').value.trim();
+  if (!url) { setStatus('CSV URL is empty', 'err'); return; }
+  saveSettings({ csvUrl: url });
+  setStatus(`Loading CSV…`, '');
+  try {
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    const cues = parseAudioCsv(text);
+    const groups = buildAudioGroups(cues);
+    rebuildAndRender({ audioGroups: groups });
+    setStatus(`Loaded ${cues.length} cues → ${groups.length} groups`, 'ok');
+  } catch (err) {
+    setStatus(`✗ CSV load failed: ${err.message}`, 'err');
+  }
+}
+document.getElementById('audio-load-btn').addEventListener('click', loadAudioCsv);
+document.getElementById('tb-load-csv').addEventListener('click', loadAudioCsv);
+
+// ════════════════════════════════════════════════════════════════════════════
+// Utilities
+// ════════════════════════════════════════════════════════════════════════════
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, ch => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[ch]));
+}
+function setStatus(msg, cls) {
+  const el = document.getElementById('status-text');
+  el.textContent = msg;
+  el.className = cls || '';
+}
+
+// Sidebar tabs
+let sidebarMode = 'lists';
+function renderActiveSidebar() {
+  const host = document.getElementById('sb-body');
+  host.innerHTML = '';
+  const node = playingId ? findById(playingId) : null;
+  if (node) {
+    const item = document.createElement('div');
+    item.className = 'sb-tree-item selected';
+    item.innerHTML = `<span class="chev" style="color:var(--accent-green);">▶</span>${escapeHtml(String(node.number ?? ''))} &mdash; ${escapeHtml(node.name)}`;
+    host.appendChild(item);
+  } else {
+    host.innerHTML = '<div style="padding:8px;color:var(--text-dim);font-size:12px;">No active cues</div>';
+  }
+}
+function refreshActiveSidebar() {
+  if (sidebarMode === 'active') renderActiveSidebar();
+}
+document.getElementById('sb-tab-lists').addEventListener('click', () => {
+  sidebarMode = 'lists';
+  document.getElementById('sb-tab-lists').classList.add('active');
+  document.getElementById('sb-tab-active').classList.remove('active');
+  renderSidebar();
+});
+document.getElementById('sb-tab-active').addEventListener('click', () => {
+  sidebarMode = 'active';
+  document.getElementById('sb-tab-active').classList.add('active');
+  document.getElementById('sb-tab-lists').classList.remove('active');
+  renderActiveSidebar();
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Group / Ungroup
+// ════════════════════════════════════════════════════════════════════════════
+function makeGroup() {
+  if (!selectedIds.size) { setStatus('Select cues first, then Group', 'err'); return; }
+
+  // Walk the tree to find every selected node along with its parent and index.
+  const items = [];
+  (function walk(parent) {
+    if (!parent.children) return;
+    parent.children.forEach((child, idx) => {
+      if (selectedIds.has(child.id)) items.push({ parent, child, idx });
+      walk(child);
+    });
+  })(cueRoot);
+
+  if (!items.length) { setStatus('No selected cues found', 'err'); return; }
+
+  // All selected items must share a parent so the new group has a single home.
+  const sharedParent = items[0].parent;
+  if (items.some(it => it.parent !== sharedParent)) {
+    setStatus('Selected cues must share the same parent group', 'err'); return;
+  }
+  if (!sharedParent.userId) {
+    setStatus('Cannot group cues directly under the root — group within a list', 'err'); return;
+  }
+  if (items.some(it => !it.child.userId)) {
+    setStatus('Cannot group: some items lack a stable id', 'err'); return;
+  }
+
+  // Order is preserved → enforce contiguous selection so nothing visually shifts.
+  items.sort((a, b) => a.idx - b.idx);
+  for (let i = 1; i < items.length; i++) {
+    if (items[i].idx !== items[i - 1].idx + 1) {
+      setStatus('Selected cues must be contiguous to preserve order — try Shift-click for a range', 'err');
+      return;
+    }
+  }
+
+  const settings = loadSettings();
+  const defaultName = `Group ${(settings.userGroupings || []).length + 1}`;
+  const name = prompt('Group name:', defaultName);
+  if (name == null) return;   // cancelled
+
+  const newGroup = {
+    id: 'usergroup:' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36),
+    name: name.trim() || defaultName,
+    parentRef: sharedParent.userId,
+    memberRefs: items.map(it => it.child.userId),
+    expanded: true,
+  };
+  settings.userGroupings = [...(settings.userGroupings || []), newGroup];
+  saveSettings({ userGroupings: settings.userGroupings });
+  rebuildAndRender();
+
+  // Select the freshly-created group for immediate ungrouping / renaming.
+  const created = findByUserId(newGroup.id);
+  if (created) selectSingle(created.id);
+  setStatus(`Grouped ${newGroup.memberRefs.length} cues into "${newGroup.name}"`, 'ok');
+}
+
+function ungroupSelected() {
+  // Find any user-group within the current selection. Prefer the primary if it's one.
+  let target = primaryId ? findById(primaryId) : null;
+  if (!target || !target.isUserGroup) {
+    for (const id of selectedIds) {
+      const n = findById(id);
+      if (n && n.isUserGroup) { target = n; break; }
+    }
+  }
+  if (!target || !target.isUserGroup) {
+    setStatus('Select a user-created group (purple row) to ungroup', 'err'); return;
+  }
+  const settings = loadSettings();
+  const before = (settings.userGroupings || []).length;
+  settings.userGroupings = (settings.userGroupings || []).filter(g => g.id !== target.userId);
+  saveSettings({ userGroupings: settings.userGroupings });
+  rebuildAndRender();
+  setStatus(`Ungrouped — ${before - settings.userGroupings.length} group(s) removed`, 'ok');
+}
+
+function renameSelectedGroup() {
+  // Find any user group in the current selection — prefer primary.
+  let target = primaryId ? findById(primaryId) : null;
+  if (!target || !target.isUserGroup) {
+    for (const id of selectedIds) {
+      const n = findById(id);
+      if (n && n.isUserGroup) { target = n; break; }
+    }
+  }
+  if (!target || !target.isUserGroup) {
+    setStatus('Select a user-created group (purple row) to rename', 'err'); return;
+  }
+  const next = prompt('Rename group:', target.name);
+  if (next == null) return;          // cancelled
+  const trimmed = next.trim();
+  if (!trimmed) { setStatus('Group name cannot be empty', 'err'); return; }
+  if (trimmed === target.name)  { setStatus('Name unchanged', ''); return; }
+
+  const settings = loadSettings();
+  settings.userGroupings = (settings.userGroupings || []).map(g =>
+    g.id === target.userId ? { ...g, name: trimmed } : g
+  );
+  saveSettings({ userGroupings: settings.userGroupings });
+  rebuildAndRender();
+  setStatus(`Renamed to "${trimmed}"`, 'ok');
+}
+
+document.getElementById('tb-group').addEventListener('click', makeGroup);
+document.getElementById('tb-ungroup').addEventListener('click', ungroupSelected);
+document.getElementById('tb-rename').addEventListener('click', renameSelectedGroup);
+
+// ════════════════════════════════════════════════════════════════════════════
+// Settings UI hydration — restore values from localStorage, persist on change.
+// ════════════════════════════════════════════════════════════════════════════
+function hydrateSettingsUI() {
+  const s = loadSettings();
+  document.getElementById('port').value           = s.port;
+  document.getElementById('address').value        = s.address;
+  document.getElementById('audio-address').value  = s.audioAddress;
+  document.getElementById('audio-csv-url').value  = s.csvUrl;
+  document.getElementById('ff-delay').value       = s.ffDelay;
+  renderIpManagement();
+}
+
+function bindFieldPersist(id, key, parse) {
+  const el = document.getElementById(id);
+  el.addEventListener('change', () => {
+    saveSettings({ [key]: parse ? parse(el.value) : el.value });
+  });
+}
+bindFieldPersist('port',           'port', v => parseInt(v, 10) || 7000);
+bindFieldPersist('address',        'address');
+bindFieldPersist('audio-address',  'audioAddress');
+bindFieldPersist('audio-csv-url',  'csvUrl');
+bindFieldPersist('ff-delay',       'ffDelay', v => Math.max(0, parseInt(v, 10) || 0));
+
+hydrateSettingsUI();
+
+// Convert native title="…" attributes into data-tip so our fast CSS tooltips
+// fire instead of the browser's slow native delay. Dynamically-added elements
+// that need fast tips can set data-tip directly.
+(function fastTooltips() {
+  for (const el of document.querySelectorAll('[title]')) {
+    const t = el.getAttribute('title');
+    if (t) { el.dataset.tip = t; el.removeAttribute('title'); }
+  }
+})();
+
+// ════════════════════════════════════════════════════════════════════════════
+// Initial render + optional auto-load of last CSV
+// ════════════════════════════════════════════════════════════════════════════
+renderCueList();
+renderSidebar();
+// Auto-select first leaf so GO works immediately.
+{
+  const firstLeaf = flatRows.find(r => !r.node.children);
+  if (firstLeaf) selectSingle(firstLeaf.node.id);
+}
+
+// If a CSV URL is saved, load it so user-groupings that reference audio cues resolve.
+if (loadSettings().csvUrl) {
+  loadAudioCsv().catch(() => {});
+}
+</script>
+
+</body>
+</html>
