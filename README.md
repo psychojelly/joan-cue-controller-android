@@ -1,8 +1,22 @@
-# Joan Cues — Android Cue Controller
+# Joan Cues — Android Cue Controller & Performer Monitor
 
-A native Android app that turns a tablet into a **standalone cue brain** for
-*Joan of the City*. It is the show-grade replacement for running `proxy.py` in
-Termux.
+A native Android app with **two modes**, picked on launch (one tap — nothing
+is auto-remembered, so a tablet can never silently boot into the wrong role):
+
+- **🎛 Operator** — the standalone cue brain: hosts the cue controller webpage
+  and fires OSC/UDP cues to the group. Show-grade replacement for
+  `proxy.py`-in-Termux.
+- **🎭 Performer** — the listening tablet: receives OSC on **:7000** exactly
+  like a headset (`/audio/cue`, `/audio/seek|jump[/stem]`, `/audio/vol`),
+  downloads + caches the stems and cue CSV from GitHub, and plays the audio
+  in sync so the performer hears the show. A Kotlin port of the Unity
+  **JoanAudio** semantics (cue groups `B_SQ201`→`B_201`, Hold / Loop /
+  OneShot / Stop / StopAll, volume ramps; stems persist across cues).
+  Unity's implementation remains the source of truth — if behavior ever
+  differs, trust Unity's.
+
+The mode picker also shows the tablet's **IP address** — that's what you add
+to the operator's target list.
 
 **What it is:** the existing cue-controller webpage, unchanged, inside a
 WebView — backed by an embedded HTTP server (a direct Kotlin port of
