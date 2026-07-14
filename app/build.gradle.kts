@@ -9,7 +9,7 @@ android {
 
     defaultConfig {
         applicationId = "com.psychojelly.joancues"
-        minSdk = 26          // Android 8.0+ — covers any modern tablet
+        minSdk = 24          // Android 7.0+ — covers Fire HD 8 (2018, Fire OS 6) and newer
         targetSdk = 35
         versionCode = 1
         versionName = "0.1"
