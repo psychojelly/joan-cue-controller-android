@@ -40,6 +40,17 @@ Nothing is currently installed on this machine — you need exactly one thing:
    dependencies, and sync. First sync takes a few minutes.
 3. If Studio suggests installing a missing SDK platform (API 35), accept.
 
+> **Windows gotcha:** if you hand-write `local.properties`, use forward slashes
+> (`sdk.dir=C:/Android/sdk`). Backslashes get eaten by the Java properties
+> parser and the build fails with a cryptic `Invalid file path`.
+>
+> **Command-line build (no Studio window needed):**
+> ```
+> set JAVA_HOME=C:\Program Files\Android\Android Studio\jbr
+> C:\Android\gradle-8.9\bin\gradle assembleDebug
+> ```
+> APK lands in `app/build/outputs/apk/debug/app-debug.apk`.
+
 ## Build & run on the tablet
 
 1. On the tablet: **Settings → About → tap "Build number" 7×** to enable
