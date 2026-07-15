@@ -82,6 +82,11 @@ support doubles).
 | `/audio/cue` | master → devices :7000 | `cueId:string [, playAt:double]` | **playAt absent = play now (today's behavior — full backwards compat)** |
 | `/sync` | master → devices :7000 | `stem:string, position:double, masterTime:double` | servo: where this stem should be |
 | `/audio/reload` | master → devices :7000 | `1:int` (ignored) | re-fetch the cue CSV + preload any new stems. Implemented in the tablet app (Performer) and fired by the controller's **⟳ CSV → ALL** button; **Unity should add the same handler** (re-run the CSV load + preload routine). |
+| `/clock/master` | master → devices :7000 | `ip:string` | the cue server announces its own IP alongside every scheduled cue, so receivers know where to send `/clock/ping`. (The tablet app auto-learns from packet source; Unity/extOSC can't see sender addresses, hence the explicit announce.) |
+
+> **Status:** the Unity-side implementation of Phases 0+1 now exists as a
+> drop-in patch — see **`unity-patch/`** in this repo (four C# files, no scene
+> changes, `UseScheduledSync` rollback toggle, install/test instructions).
 
 **Offset estimation (device side):** note local send time `t0`, receive
 `masterTime ts` at local `t1`. One sample: `offset = ts − (t0 + t1)/2`,

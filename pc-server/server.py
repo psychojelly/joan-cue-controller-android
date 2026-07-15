@@ -61,6 +61,18 @@ CONTENT_TYPES = {
 # ---------------------------------------------------------------------------
 # Sync additions (Phase 0+1 of AUDIO-SYNC-HANDOFF.md)
 # ---------------------------------------------------------------------------
+def local_ip_for(host):
+    """The IP this machine uses to reach `host` — what receivers ping for clock sync."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect((host, 9))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return None
+
+
 def master_now():
     """Master clock = this process's monotonic time, in seconds (double)."""
     return time.monotonic()
@@ -175,6 +187,12 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             if schedule:
+                # Announce the master's IP so receivers (Unity) know where to
+                # send /clock/ping — the tablet app auto-learns from the packet
+                # source, but extOSC can't see sender addresses.
+                my_ip = local_ip_for(host)
+                if my_ip:
+                    send_osc(host, port, "/clock/master", [my_ip])
                 play_at = master_now() + float(lead_ms) / 1000.0
                 for i in range(3):
                     send_osc(host, port, addr, [value, play_at])

@@ -7,6 +7,7 @@ import org.json.JSONObject
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
+import java.net.NetworkInterface
 
 /**
  * The Kotlin twin of server.py:
@@ -27,6 +28,14 @@ class CueHttpServer(private val context: Context, port: Int = PORT) : NanoHTTPD(
 
         /** Master clock = this device's monotonic time, seconds (double). */
         fun masterNow(): Double = System.nanoTime() / 1e9
+
+        /** Best-effort LAN IPv4 of this device — sent in /clock/master announces. */
+        fun localIp(): String? = try {
+            NetworkInterface.getNetworkInterfaces().toList()
+                .flatMap { it.inetAddresses.toList() }
+                .firstOrNull { !it.isLoopbackAddress && it.hostAddress?.contains('.') == true }
+                ?.hostAddress
+        } catch (e: Exception) { null }
     }
 
     override fun serve(session: IHTTPSession): Response {
@@ -72,6 +81,13 @@ class CueHttpServer(private val context: Context, port: Int = PORT) : NanoHTTPD(
             val playAt = masterNow() + leadMs!! / 1000.0
             val packet = OscEncoder.encode(addr, listOf(value, playAt))
             DatagramSocket().use { socket ->
+                // Announce the master's IP so receivers (Unity) know where to
+                // send /clock/ping. The performer app auto-learns from packet
+                // source; extOSC can't, so we tell it explicitly.
+                localIp()?.let { ip ->
+                    val announce = OscEncoder.encode("/clock/master", ip)
+                    socket.send(DatagramPacket(announce, announce.size, InetAddress.getByName(host), port))
+                }
                 repeat(3) { i ->
                     socket.send(DatagramPacket(packet, packet.size, InetAddress.getByName(host), port))
                     if (i < 2) Thread.sleep(50)
