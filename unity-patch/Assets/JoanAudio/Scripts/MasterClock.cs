@@ -55,6 +55,9 @@ namespace JoanAudio
         /// <summary>The current master IP (null until a /clock/master announce arrives).</summary>
         public static string MasterIp { get { lock (gate) return masterIp; } }
 
+        /// <summary>Applied clock offset in milliseconds (0 until synced). For diagnostics.</summary>
+        public static double OffsetMs { get { lock (gate) return hasOffset ? appliedOffset * 1000.0 : 0.0; } }
+
         /// <summary>Point the clock at the master. Safe to call repeatedly.</summary>
         public static void SetMaster(string ip)
         {

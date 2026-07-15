@@ -30,6 +30,14 @@ namespace JoanAudio
         public bool UseScheduledSync = true;
         public string ClockMasterAddress = "/clock/master";
 
+        [Header("Debug observability (D2)")]
+        [Tooltip("Controller broadcasts /debug/enable 1 to turn on verbose reporting " +
+                 "back to the cue server (:9002) and the in-headset HUD; /debug/heartbeat 1 " +
+                 "for the lightweight 1 Hz roster beacon. Both default OFF — zero overhead " +
+                 "until an operator asks for them.")]
+        public string DebugEnableAddress = "/debug/enable";
+        public string DebugHeartbeatAddress = "/debug/heartbeat";
+
         // Dedupe for the sender's redundant 3x sends: (cueId|playAt), recent ~32.
         readonly Queue<string> dedupeOrder = new Queue<string>();
         readonly HashSet<string> dedupeSet = new HashSet<string>();
@@ -48,6 +56,23 @@ namespace JoanAudio
             Receiver.Bind(JumpStemAddress, OnJumpStem);
             Receiver.Bind(VolumeAddress, OnVolume);
             Receiver.Bind(ClockMasterAddress, OnClockMaster);
+            Receiver.Bind(DebugEnableAddress, OnDebugEnable);
+            Receiver.Bind(DebugHeartbeatAddress, OnDebugHeartbeat);
+            DebugReporter.Attach(Controller);
+        }
+
+        /// <summary>/debug/enable [0|1] — controller toggles verbose reporting + HUD.</summary>
+        void OnDebugEnable(OSCMessage msg)
+        {
+            if (msg.Values.Count < 1) return;
+            DebugReporter.SetEnabled(TryInt(msg.Values[0], 0) != 0);
+        }
+
+        /// <summary>/debug/heartbeat [0|1] — controller toggles the 1 Hz roster beacon.</summary>
+        void OnDebugHeartbeat(OSCMessage msg)
+        {
+            if (msg.Values.Count < 1) return;
+            DebugReporter.SetHeartbeat(TryInt(msg.Values[0], 0) != 0);
         }
 
         /// <summary>/clock/master [ip:string] — the cue server announces itself.</summary>
@@ -76,11 +101,13 @@ namespace JoanAudio
                     dedupeSet.Add(key); dedupeOrder.Enqueue(key);
                     while (dedupeOrder.Count > 32) dedupeSet.Remove(dedupeOrder.Dequeue());
 
+                    DebugReporter.ReportRx(cueId, MasterClock.Now, playAt);
                     Controller.TriggerCueScheduled(cueId, playAt);
                     return;
                 }
             }
 
+            DebugReporter.ReportRx(cueId, MasterClock.Now, 0);
             Controller.TriggerCue(cueId);
         }
 
