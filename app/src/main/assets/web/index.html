@@ -1037,6 +1037,7 @@
     <div class="tb-group">
       <button class="tb-btn" id="tb-load-csv" title="Reload audio CSV">↻ CSV</button>
       <button class="tb-btn" id="tb-csv-all" title="Reload the CSV here AND send /audio/reload so every device in the audience re-fetches it">⟳ CSV → ALL</button>
+      <button class="tb-btn" id="tb-debug" title="Debug logger — device roster, heartbeats, receive timestamps">🐞 Debug</button>
       <button class="tb-btn" id="tb-settings" title="Settings">⚙ Settings</button>
     </div>
     <div class="tb-group" title="Toggle audiences to broadcast to. Cues go to the union of selected groups. 'All' is a shortcut for every known IP.">
@@ -2964,5 +2965,123 @@ if (loadSettings().csvUrl) {
 }
 </script>
 
+
+<!-- ══════════════ Debug observability panel (D1) ══════════════ -->
+<div id="dbg-panel" style="display:none; position:fixed; top:0; right:0; width:460px; max-width:92vw; height:100vh; z-index:9999; background:#0d0f16; border-left:1px solid #2a2d3a; box-shadow:-12px 0 40px rgba(0,0,0,.5); font-family:ui-monospace,Consolas,monospace; color:#cfd2e0; display:none; flex-direction:column;">
+  <div style="display:flex; align-items:center; gap:10px; padding:12px 14px; border-bottom:1px solid #2a2d3a;">
+    <b style="color:#d4af6a; font-size:14px;">🐞 DEBUG</b>
+    <label style="font-size:12px; display:flex; gap:5px; align-items:center;"><input type="checkbox" id="dbg-on"/> reporting</label>
+    <label style="font-size:12px; display:flex; gap:5px; align-items:center;"><input type="checkbox" id="dbg-hb"/> heartbeat</label>
+    <span id="dbg-status" style="font-size:11px; color:#6f7186; margin-left:auto;">idle</span>
+    <button id="dbg-close" style="background:none; border:1px solid #2a2d3a; color:#cfd2e0; border-radius:6px; cursor:pointer; padding:2px 8px;">✕</button>
+  </div>
+  <div style="padding:10px 14px; border-bottom:1px solid #2a2d3a;">
+    <div style="font-size:10px; letter-spacing:1px; color:#d4af6a; margin-bottom:6px;">DEVICES</div>
+    <div id="dbg-roster" style="font-size:11.5px; line-height:1.7;">(none yet — turn on reporting + heartbeat)</div>
+  </div>
+  <div style="flex:1; overflow-y:auto; padding:10px 14px;">
+    <div style="font-size:10px; letter-spacing:1px; color:#d4af6a; margin-bottom:6px;">LOG <span style="color:#6f7186">(newest first · mt = master-clock seconds)</span></div>
+    <div id="dbg-log" style="font-size:11px; line-height:1.65; white-space:pre-wrap;"></div>
+  </div>
+</div>
+<script>
+(function () {
+  const BASE = location.protocol.startsWith('http') ? location.origin : 'http://127.0.0.1:8765';
+  const panel = document.getElementById('dbg-panel');
+  const rosterEl = document.getElementById('dbg-roster');
+  const logEl = document.getElementById('dbg-log');
+  const statusEl = document.getElementById('dbg-status');
+  let lastSeq = 0, open = false;
+  const devices = {};           // id -> {ip, lastSeen(ms), hb:[...], kind}
+  const lines = [];             // {t, html}
+
+  document.getElementById('tb-debug').addEventListener('click', () => {
+    open = !open;
+    panel.style.display = open ? 'flex' : 'none';
+  });
+  document.getElementById('dbg-close').addEventListener('click', () => {
+    open = false; panel.style.display = 'none';
+  });
+
+  document.getElementById('dbg-on').addEventListener('change', e => {
+    sendOsc('/debug/enable', e.target.checked ? 1 : 0);
+    addLine('ctl', `debug reporting ${e.target.checked ? 'ON' : 'OFF'} → audience`);
+  });
+  document.getElementById('dbg-hb').addEventListener('change', e => {
+    sendOsc('/debug/heartbeat', e.target.checked ? 1 : 0);
+    addLine('ctl', `heartbeat ${e.target.checked ? 'ON' : 'OFF'} → audience`);
+  });
+
+  function esc(s) { return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+  function addLine(kind, text, mt) {
+    const color = { rx:'#7ee08a', hb:'#5fb8c4', log:'#cfd2e0', ctl:'#d4af6a', err:'#e07a7a', raw:'#8f93a8' }[kind] || '#cfd2e0';
+    const stamp = mt !== undefined ? `<span style="color:#6f7186">mt ${Number(mt).toFixed(3)}</span> ` : '';
+    lines.unshift(`<div style="color:${color}">${stamp}${esc(text)}</div>`);
+    if (lines.length > 150) lines.pop();
+    if (open) logEl.innerHTML = lines.join('');
+  }
+
+  function touch(id, ip) {
+    if (!id) return null;
+    devices[id] = devices[id] || {};
+    devices[id].ip = ip || devices[id].ip;
+    devices[id].lastSeen = Date.now();
+    return devices[id];
+  }
+
+  function handle(ev) {
+    const a = ev.args || [];
+    switch (ev.addr) {
+      case '/debug/hello': {
+        const d = touch(a[0], ev.from); if (d) d.kind = a[1];
+        addLine('ctl', `HELLO ${a[0]} (${a[1]}) @ ${ev.from}`, ev.t); break;
+      }
+      case '/debug/hb': {
+        const d = touch(a[0], ev.from);
+        if (d) d.hb = { mt: a[1], lastCue: a[2], stems: a[3], offsetMs: a[4] };
+        break;   // roster only — no log spam
+      }
+      case '/debug/rx': {
+        touch(a[0], ev.from);
+        const margin = a[3] > 0 ? `margin ${((a[3] - a[2]) * 1000).toFixed(0)}ms` : '(immediate mode)';
+        addLine('rx', `RX ${a[0]}  cue ${a[1]}  ${margin}`, ev.t); break;
+      }
+      case '/debug/log': {
+        touch(a[0], ev.from);
+        addLine(a[2] === 'error' ? 'err' : 'log', `${a[0]}: ${a[3]}`, a[1]); break;
+      }
+      default:
+        addLine('raw', `${ev.addr} ${a.join(' ')} @ ${ev.from}`, ev.t);
+    }
+  }
+
+  function renderRoster() {
+    const ids = Object.keys(devices);
+    if (!ids.length) { rosterEl.textContent = '(none yet — turn on reporting + heartbeat)'; return; }
+    rosterEl.innerHTML = ids.sort().map(id => {
+      const d = devices[id];
+      const age = (Date.now() - d.lastSeen) / 1000;
+      const dot = age < 3 ? '🟢' : age < 10 ? '🟡' : '🔴';
+      const hb = d.hb ? `  off ${Number(d.hb.offsetMs).toFixed(1)}ms  cue ${d.hb.lastCue || '—'}  stems ${d.hb.stems}` : '';
+      return `<div>${dot} <b>${esc(id)}</b> <span style="color:#6f7186">${esc(d.ip || '')} · ${age.toFixed(0)}s ago${esc(hb)}</span></div>`;
+    }).join('');
+  }
+
+  async function poll() {
+    try {
+      const res = await fetch(`${BASE}/debug/events?since=${lastSeq}`);
+      const data = await res.json();
+      lastSeq = data.seq || lastSeq;
+      (data.events || []).forEach(handle);
+      statusEl.textContent = `feed ok · seq ${lastSeq}`;
+    } catch (e) {
+      statusEl.textContent = 'feed unreachable';
+    }
+    if (open) renderRoster();
+  }
+  setInterval(poll, 800);
+})();
+</script>
 </body>
 </html>

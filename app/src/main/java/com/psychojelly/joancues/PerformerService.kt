@@ -124,6 +124,54 @@ class PerformerService : Service() {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>?) = size > 32
     }
 
+    // ---- Debug observability (device side): reports to master :9002 ---------
+    @Volatile private var debugEnabled = false
+    @Volatile private var heartbeatEnabled = false
+    private var hbThread: Thread? = null
+    private val deviceId: String by lazy {
+        val model = android.os.Build.MODEL.replace(' ', '_')
+        val ipTail = localIpTail()
+        "$model-$ipTail"
+    }
+
+    private fun localIpTail(): String = try {
+        java.net.NetworkInterface.getNetworkInterfaces().toList()
+            .flatMap { it.inetAddresses.toList() }
+            .firstOrNull { !it.isLoopbackAddress && it.hostAddress?.contains('.') == true }
+            ?.hostAddress?.substringAfterLast('.') ?: "0"
+    } catch (e: Exception) { "0" }
+
+    /** Fire-and-forget OSC to the master's :9002 debug listener. */
+    private fun sendDebug(addr: String, vararg args: Any) {
+        val master = MasterClock.master ?: return
+        Thread {
+            try {
+                val packet = OscEncoder.encode(addr, args.toList())
+                DatagramSocket().use {
+                    it.send(DatagramPacket(packet, packet.size,
+                        java.net.InetAddress.getByName(master), 9002))
+                }
+            } catch (_: Exception) {}
+        }.start()
+    }
+
+    private fun setHeartbeat(on: Boolean) {
+        heartbeatEnabled = on
+        if (on && (hbThread?.isAlive != true)) {
+            hbThread = Thread {
+                while (heartbeatEnabled && running) {
+                    val eng = engine
+                    sendDebug("/debug/hb", deviceId,
+                        MasterClock.now() ?: -1.0,
+                        eng?.lastCueId ?: "",
+                        eng?.activeStems()?.size ?: 0,
+                        MasterClock.offsetMs ?: -1.0)
+                    Thread.sleep(1000)
+                }
+            }.apply { isDaemon = true; start() }
+        }
+    }
+
     private fun handle(eng: StemEngine, msg: OscDecoder.Message) {
         val v0 = msg.values.getOrNull(0)
         when (msg.address) {
@@ -141,10 +189,12 @@ class PerformerService : Service() {
                     val now = MasterClock.now()
                     val inMs = if (now != null) ((playAt - now) * 1000).toLong() else null
                     log("audio cue  $id  scheduled ${if (inMs != null) "in ${inMs}ms" else "(unsynced: now)"}")
+                    if (debugEnabled) sendDebug("/debug/rx", deviceId, id, now ?: -1.0, playAt)
                     eng.triggerCueAt(id, playAt)
                 } else {
                     // OLD way: immediate, exactly as before.
                     log("audio cue  $id"); eng.triggerCue(id)
+                    if (debugEnabled) sendDebug("/debug/rx", deviceId, id, MasterClock.now() ?: -1.0, 0.0)
                 }
             }
             "/audio/seek" -> eng.seekGlobal(OscDecoder.asFloat(v0))
@@ -158,6 +208,17 @@ class PerformerService : Service() {
             "/audio/reload" -> {
                 log("reload requested — refetching CSV + stems")
                 Thread { eng.loadConfigAndPreload(); log("config: ${eng.status}") }.start()
+            }
+            "/debug/enable" -> {
+                val on = OscDecoder.asFloat(v0) != 0f
+                debugEnabled = on
+                log("debug reporting ${if (on) "ON" else "OFF"}")
+                if (on) sendDebug("/debug/hello", deviceId, "performer")
+            }
+            "/debug/heartbeat" -> {
+                val on = OscDecoder.asFloat(v0) != 0f
+                log("heartbeat ${if (on) "ON" else "OFF"}")
+                setHeartbeat(on)
             }
             "/cue" -> log("visual cue ${OscDecoder.asString(v0)} (not rendered here)")
             else -> log("osc ${msg.address} ${msg.values.joinToString(" ")}")

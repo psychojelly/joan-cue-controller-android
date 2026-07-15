@@ -40,6 +40,7 @@ from pythonosc.osc_message_builder import OscMessageBuilder
 # ---------------------------------------------------------------------------
 PORT = int(os.environ.get("PORT", 8765))        # HTTP port for page + /send
 CLOCK_PORT = 9001                               # UDP: /clock/ping -> /clock/pong
+DEBUG_PORT = 9002                               # UDP: /debug/* reports from devices
 ROOT = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_PAGE = "index.html"                     # served at "/"
 
@@ -91,6 +92,48 @@ def send_osc(host, port, address, args):
     udp_client.UDPClient(host, port).send(b.build())
 
 
+# ---------------------------------------------------------------------------
+# Debug observability (D0): devices send /debug/* OSC here; the controller
+# page polls GET /debug/events?since=<seq> to visualize them.
+# ---------------------------------------------------------------------------
+_debug_lock = threading.Lock()
+_debug_events = []          # ring buffer of dicts
+_debug_seq = 0
+DEBUG_RING = 500
+
+
+def _debug_add(addr, args, src_ip):
+    global _debug_seq
+    with _debug_lock:
+        _debug_seq += 1
+        _debug_events.append({
+            "seq": _debug_seq,
+            "t": master_now(),          # server master-clock receive time
+            "addr": addr,
+            "args": list(args),
+            "from": src_ip,
+        })
+        while len(_debug_events) > DEBUG_RING:
+            _debug_events.pop(0)
+
+
+def debug_listener():
+    """UDP :9002 - collect /debug/* reports from headsets & performer tablets."""
+    from pythonosc import dispatcher, osc_server
+
+    disp = dispatcher.Dispatcher()
+
+    def handle(client_address, addr, *args):
+        _debug_add(addr, args, client_address[0])
+
+    disp.set_default_handler(handle, needs_reply_address=True)
+    try:
+        server = osc_server.BlockingOSCUDPServer(("0.0.0.0", DEBUG_PORT), disp)
+        server.serve_forever()
+    except Exception as e:
+        print(f"  debug listener error: {e}")
+
+
 def clock_responder():
     """UDP :9001 — answer /clock/ping [seq] with /clock/pong [seq, masterTime]."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -128,6 +171,30 @@ class Handler(BaseHTTPRequestHandler):
     # ---- 1) Serve the controller page + any static file in this folder ----
     def do_GET(self):
         path = unquote(urlparse(self.path).path)
+
+        # Debug event feed for the controller's logger panel.
+        if path == "/debug/events":
+            try:
+                qs = urlparse(self.path).query
+                since = 0
+                for kv in qs.split("&"):
+                    if kv.startswith("since="):
+                        since = int(kv.split("=", 1)[1] or 0)
+                with _debug_lock:
+                    events = [e for e in _debug_events if e["seq"] > since]
+                    seq = _debug_seq
+                payload = json.dumps({"seq": seq, "now": master_now(),
+                                      "events": events}).encode("utf-8")
+            except Exception as e:
+                payload = json.dumps({"seq": 0, "events": [], "error": str(e)}).encode("utf-8")
+            self.send_response(200)
+            self._cors()
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+
         if path in ("/", ""):
             path = "/" + DEFAULT_PAGE
 
@@ -223,7 +290,9 @@ def main():
     print(f"  Clock sync : UDP :{CLOCK_PORT}  /clock/ping -> /clock/pong")
     print(f"  Serving    : {ROOT}")
     print("  Press Ctrl+C to stop.\n")
+    print(f"  Debug feed : UDP :{DEBUG_PORT}  /debug/* -> GET /debug/events")
     threading.Thread(target=clock_responder, daemon=True).start()
+    threading.Thread(target=debug_listener, daemon=True).start()
     ThreadingHTTPServer(("", PORT), Handler).serve_forever()
 
 

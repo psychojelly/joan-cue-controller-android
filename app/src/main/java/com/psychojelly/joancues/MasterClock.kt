@@ -35,6 +35,12 @@ object MasterClock {
 
     fun localNow(): Double = System.nanoTime() / 1e9
 
+    /** The current master IP (null until learned) — debug reports go here. */
+    val master: String? get() = masterIp
+
+    /** Applied clock offset in ms (null until synced) — for debug heartbeats. */
+    val offsetMs: Double? get() = appliedOffset?.times(1000.0)
+
     /** Master time now, or null while unsynced. */
     fun now(): Double? = appliedOffset?.let { localNow() + it }
     val isSynced: Boolean get() = appliedOffset != null

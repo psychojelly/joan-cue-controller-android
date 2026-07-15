@@ -36,12 +36,44 @@ class CueHttpServer(private val context: Context, port: Int = PORT) : NanoHTTPD(
                 .firstOrNull { !it.isLoopbackAddress && it.hostAddress?.contains('.') == true }
                 ?.hostAddress
         } catch (e: Exception) { null }
+
+        // ---- Debug observability (D0): /debug/* reports buffered for the page ----
+        private val debugLock = Any()
+        private val debugEvents = ArrayDeque<org.json.JSONObject>()
+        private var debugSeq = 0L
+        private const val DEBUG_RING = 500
+
+        fun debugAdd(addr: String, args: List<Any>, from: String) {
+            synchronized(debugLock) {
+                debugSeq++
+                debugEvents.addLast(org.json.JSONObject().apply {
+                    put("seq", debugSeq)
+                    put("t", masterNow())
+                    put("addr", addr)
+                    put("args", org.json.JSONArray(args))
+                    put("from", from)
+                })
+                while (debugEvents.size > DEBUG_RING) debugEvents.removeFirst()
+            }
+        }
+
+        private fun debugEventsJson(since: Long): String = synchronized(debugLock) {
+            val arr = org.json.JSONArray()
+            for (e in debugEvents) if (e.getLong("seq") > since) arr.put(e)
+            org.json.JSONObject().apply {
+                put("seq", debugSeq); put("now", masterNow()); put("events", arr)
+            }.toString()
+        }
     }
 
     override fun serve(session: IHTTPSession): Response {
         return try {
             when {
                 session.method == Method.OPTIONS -> cors(newFixedLengthResponse(Response.Status.OK, "text/plain", ""))
+                session.method == Method.GET && session.uri == "/debug/events" -> {
+                    val since = session.parms["since"]?.toLongOrNull() ?: 0L
+                    cors(newFixedLengthResponse(Response.Status.OK, "application/json", debugEventsJson(since)))
+                }
                 session.method == Method.POST && session.uri == "/send" -> handleSend(session)
                 else -> serveAsset(session.uri)
             }

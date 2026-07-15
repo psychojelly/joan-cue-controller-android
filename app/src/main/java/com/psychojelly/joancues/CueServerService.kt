@@ -64,8 +64,9 @@ class CueServerService : Service() {
 
             server = CueHttpServer(applicationContext).also { it.start() }
             startClockResponder()
+            startDebugListener()
             running = true
-            Log.i(TAG, "Cue server started on :${CueHttpServer.PORT} (+clock :9001)")
+            Log.i(TAG, "Cue server started on :${CueHttpServer.PORT} (+clock :9001, +debug :9002)")
         }
 
         val notification = buildNotification()
@@ -100,9 +101,37 @@ class CueServerService : Service() {
         }.apply { isDaemon = true; start() }
     }
 
+    // UDP :9002 — collect "/debug/..." OSC reports from devices for the page's logger.
+    // (Line comment on purpose: "/debug/*" inside a block comment opens a NESTED
+    // comment in Kotlin and swallows the rest of the file.)
+    private var debugSocket: java.net.DatagramSocket? = null
+    private var debugThread: Thread? = null
+
+    private fun startDebugListener() {
+        debugThread = Thread {
+            try {
+                val sock = java.net.DatagramSocket(9002)
+                debugSocket = sock
+                val buf = ByteArray(2048)
+                while (!Thread.currentThread().isInterrupted) {
+                    val p = java.net.DatagramPacket(buf, buf.size)
+                    sock.receive(p)
+                    val msg = OscDecoder.decode(p.data, p.length) ?: continue
+                    if (!msg.address.startsWith("/debug/")) continue
+                    CueHttpServer.debugAdd(msg.address, msg.values,
+                        p.address?.hostAddress ?: "?")
+                }
+            } catch (e: Exception) {
+                if (running) Log.e(TAG, "debug listener: ${e.message}")
+            }
+        }.apply { isDaemon = true; start() }
+    }
+
     override fun onDestroy() {
         try { clockSocket?.close() } catch (_: Exception) {}
         clockThread?.interrupt()
+        try { debugSocket?.close() } catch (_: Exception) {}
+        debugThread?.interrupt()
         server?.stop(); server = null; running = false
         wakeLock?.let { if (it.isHeld) it.release() }
         wifiLock?.let { if (it.isHeld) it.release() }
