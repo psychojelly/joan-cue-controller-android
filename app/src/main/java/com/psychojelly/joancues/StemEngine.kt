@@ -65,7 +65,9 @@ class StemEngine(private val context: Context) {
             if (csvFile.exists()) csvFile.readText() else { status = "CSV unavailable: ${e.message}"; return }
         }
         val cfg = AudioCueConfig.parse(text)
-        if (cfg.baseUrl.isEmpty()) cfg.baseUrl = DEFAULT_STEM_BASE
+        // Parity with Unity: the loader's own base URL wins. (The live CSV's
+        // BaseUrl metadata row is a placeholder — Unity ignores it too.)
+        cfg.baseUrl = DEFAULT_STEM_BASE
         config = cfg
         Log.i(TAG, "Parsed ${cfg.cues.size} cues; BaseUrl=${cfg.baseUrl}")
 
