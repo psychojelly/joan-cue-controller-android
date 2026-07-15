@@ -149,3 +149,18 @@ app updates — use the controller's Export Settings for backups anyway.
 - The `/send` contract and value-typing rules are specified in the Unity
   repo's `osc-cue-server/HANDOFF.md` — that document is the source of truth
   for parity.
+
+## Audio sync & debug mode
+
+Both implemented and verified in-editor (2026-07-15):
+
+- **Audio sync** (shared master clock + scheduled cue starts):
+  [`AUDIO-SYNC-HANDOFF.md`](AUDIO-SYNC-HANDOFF.md) is the design/handoff;
+  [`unity-patch/`](unity-patch/) carries the Unity-side files and the
+  [test report](unity-patch/TEST-REPORT-2026-07-15.md). Unity branches:
+  `audio-sync-patch` → `debug-observability` (merge in that order).
+- **Debug mode** (device→controller return path, 🐞 logger panel + roster,
+  in-headset HUD, heartbeat, test tone, mute):
+  [`DEBUG-MODE.md`](DEBUG-MODE.md) — protocol, operator runbook, and the
+  full handoff inventory. Server/controller side is live in this repo
+  (`server.py` :9002 listener + `/debug/events`, panel in both HTML copies).
