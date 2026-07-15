@@ -16,31 +16,25 @@ import java.nio.ByteBuffer
  */
 object OscEncoder {
 
-    fun encode(address: String, value: Any): ByteArray {
+    fun encode(address: String, value: Any): ByteArray = encode(address, listOf(value))
+
+    /** Multi-argument encode. Doubles go as OSC 'd' (64-bit) for ms precision. */
+    fun encode(address: String, values: List<Any>): ByteArray {
         val out = ByteArrayOutputStream()
         out.write(paddedString(address))
-        when (value) {
-            is Boolean -> {
-                out.write(paddedString(if (value) ",T" else ",F"))
-                // T/F carry no argument bytes.
-            }
-            is Int -> {
-                out.write(paddedString(",i"))
-                out.write(ByteBuffer.allocate(4).putInt(value).array())
-            }
-            is Float -> {
-                out.write(paddedString(",f"))
-                out.write(ByteBuffer.allocate(4).putFloat(value).array())
-            }
-            is Double -> {
-                out.write(paddedString(",f"))
-                out.write(ByteBuffer.allocate(4).putFloat(value.toFloat()).array())
-            }
-            else -> {
-                out.write(paddedString(",s"))
-                out.write(paddedString(value.toString()))
+        val tags = StringBuilder(",")
+        val args = ByteArrayOutputStream()
+        for (value in values) {
+            when (value) {
+                is Boolean -> tags.append(if (value) 'T' else 'F')   // no payload bytes
+                is Int -> { tags.append('i'); args.write(ByteBuffer.allocate(4).putInt(value).array()) }
+                is Float -> { tags.append('f'); args.write(ByteBuffer.allocate(4).putFloat(value).array()) }
+                is Double -> { tags.append('d'); args.write(ByteBuffer.allocate(8).putDouble(value).array()) }
+                else -> { tags.append('s'); args.write(paddedString(value.toString())) }
             }
         }
+        out.write(paddedString(tags.toString()))
+        out.write(args.toByteArray())
         return out.toByteArray()
     }
 

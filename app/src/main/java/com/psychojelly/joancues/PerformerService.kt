@@ -109,6 +109,8 @@ class PerformerService : Service() {
                     val packet = DatagramPacket(buf, buf.size)
                     sock.receive(packet)
                     val msg = OscDecoder.decode(packet.data, packet.length) ?: continue
+                    // The device that sends us cues IS the clock master.
+                    packet.address?.hostAddress?.let { MasterClock.setMaster(it) }
                     handle(eng, msg)
                 }
             } catch (e: Exception) {
@@ -117,12 +119,33 @@ class PerformerService : Service() {
         }.apply { isDaemon = true; start() }
     }
 
+    /** Dedupe for redundant scheduled sends: (cueId|playAt), most recent ~32. */
+    private val seenScheduled = object : LinkedHashMap<String, Boolean>(64, 0.75f, false) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>?) = size > 32
+    }
+
     private fun handle(eng: StemEngine, msg: OscDecoder.Message) {
         val v0 = msg.values.getOrNull(0)
         when (msg.address) {
             "/audio/cue" -> {
                 val id = OscDecoder.asString(v0)
-                if (id.isNotEmpty()) { log("audio cue  $id"); eng.triggerCue(id) }
+                if (id.isEmpty()) return
+                val playAt = msg.values.getOrNull(1) as? Double
+                if (playAt != null) {
+                    // NEW way: scheduled start. Dedupe the 3x redundant sends.
+                    val key = "$id|$playAt"
+                    synchronized(seenScheduled) {
+                        if (seenScheduled.containsKey(key)) return
+                        seenScheduled[key] = true
+                    }
+                    val now = MasterClock.now()
+                    val inMs = if (now != null) ((playAt - now) * 1000).toLong() else null
+                    log("audio cue  $id  scheduled ${if (inMs != null) "in ${inMs}ms" else "(unsynced: now)"}")
+                    eng.triggerCueAt(id, playAt)
+                } else {
+                    // OLD way: immediate, exactly as before.
+                    log("audio cue  $id"); eng.triggerCue(id)
+                }
             }
             "/audio/seek" -> eng.seekGlobal(OscDecoder.asFloat(v0))
             "/audio/jump" -> eng.jumpGlobal(OscDecoder.asFloat(v0))
@@ -139,6 +162,7 @@ class PerformerService : Service() {
 
     override fun onDestroy() {
         running = false
+        MasterClock.stop()
         try { socket?.close() } catch (_: Exception) {}
         listenThread?.interrupt()
         engine?.release(); engine = null

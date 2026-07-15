@@ -6,6 +6,14 @@ sync, driven from the operator cue tablet.
 **Written to be implemented with Claude Code** — each phase ends with a
 suggested prompt. Phases are independently shippable, in order.
 
+> **Status update:** Phases 0 + 1 are now **implemented in the tablet/web
+> stack** as a test version — `server.py` + controller (sync-mode toggle in
+> the OSC settings) and this app (operator sends scheduled cues; performer
+> mode syncs its clock, dedupes the 3× sends, schedules starts, seeks in when
+> late). **The Unity receiver is the remaining piece** — the contracts below
+> are now demonstrated, not just proposed. Toggle OFF = old behavior
+> everywhere.
+
 ---
 
 ## 1. The problem, simply

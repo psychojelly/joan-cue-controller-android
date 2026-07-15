@@ -24,6 +24,9 @@ class CueHttpServer(private val context: Context, port: Int = PORT) : NanoHTTPD(
     companion object {
         const val PORT = 8765
         private const val TAG = "CueHttpServer"
+
+        /** Master clock = this device's monotonic time, seconds (double). */
+        fun masterNow(): Double = System.nanoTime() / 1e9
     }
 
     override fun serve(session: IHTTPSession): Response {
@@ -58,11 +61,30 @@ class CueHttpServer(private val context: Context, port: Int = PORT) : NanoHTTPD(
         val addr = body.optString("address", "/cue")
         val value = coerceValue(body.opt("value") ?: 1)
 
-        val packet = OscEncoder.encode(addr, value)
-        DatagramSocket().use { socket ->
-            socket.send(DatagramPacket(packet, packet.size, InetAddress.getByName(host), port))
+        // NEW way (sync mode): schedule audio cues on the master clock.
+        // leadMs present + /audio/* address -> append playAt (master monotonic
+        // seconds, OSC double) and send 3x at 50ms spacing; receivers dedupe by
+        // (cueId, playAt). Without leadMs -> old behavior, byte-identical.
+        val leadMs = if (body.has("leadMs")) body.optDouble("leadMs", 400.0) else null
+        val scheduled = leadMs != null && addr.startsWith("/audio/")
+
+        if (scheduled) {
+            val playAt = masterNow() + leadMs!! / 1000.0
+            val packet = OscEncoder.encode(addr, listOf(value, playAt))
+            DatagramSocket().use { socket ->
+                repeat(3) { i ->
+                    socket.send(DatagramPacket(packet, packet.size, InetAddress.getByName(host), port))
+                    if (i < 2) Thread.sleep(50)
+                }
+            }
+            Log.i(TAG, "OSC -> $host:$port  $addr  $value  playAt=+${leadMs}ms x3")
+        } else {
+            val packet = OscEncoder.encode(addr, value)
+            DatagramSocket().use { socket ->
+                socket.send(DatagramPacket(packet, packet.size, InetAddress.getByName(host), port))
+            }
+            Log.i(TAG, "OSC -> $host:$port  $addr  $value")
         }
-        Log.i(TAG, "OSC -> $host:$port  $addr  $value")
 
         return cors(newFixedLengthResponse(Response.Status.OK, "application/json", "{\"ok\":true}"))
     }

@@ -44,6 +44,8 @@ class CueServerService : Service() {
     private var server: CueHttpServer? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
+    private var clockSocket: java.net.DatagramSocket? = null
+    private var clockThread: Thread? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -61,8 +63,9 @@ class CueServerService : Service() {
             wifiLock = wm.createWifiLock(mode, "joancues:wifi").apply { acquire() }
 
             server = CueHttpServer(applicationContext).also { it.start() }
+            startClockResponder()
             running = true
-            Log.i(TAG, "Cue server started on :${CueHttpServer.PORT}")
+            Log.i(TAG, "Cue server started on :${CueHttpServer.PORT} (+clock :9001)")
         }
 
         val notification = buildNotification()
@@ -75,7 +78,31 @@ class CueServerService : Service() {
         return START_STICKY   // restart if the system ever does reclaim us
     }
 
+    /** UDP :9001 — answers /clock/ping [seq] with /clock/pong [seq, masterTime]. */
+    private fun startClockResponder() {
+        clockThread = Thread {
+            try {
+                val sock = java.net.DatagramSocket(9001)
+                clockSocket = sock
+                val buf = ByteArray(512)
+                while (!Thread.currentThread().isInterrupted) {
+                    val p = java.net.DatagramPacket(buf, buf.size)
+                    sock.receive(p)
+                    val msg = OscDecoder.decode(p.data, p.length) ?: continue
+                    if (msg.address != "/clock/ping") continue
+                    val seq = (msg.values.getOrNull(0) as? Int) ?: 0
+                    val reply = OscEncoder.encode("/clock/pong", listOf(seq, CueHttpServer.masterNow()))
+                    sock.send(java.net.DatagramPacket(reply, reply.size, p.address, p.port))
+                }
+            } catch (e: Exception) {
+                if (running) Log.e(TAG, "clock responder: ${e.message}")
+            }
+        }.apply { isDaemon = true; start() }
+    }
+
     override fun onDestroy() {
+        try { clockSocket?.close() } catch (_: Exception) {}
+        clockThread?.interrupt()
         server?.stop(); server = null; running = false
         wakeLock?.let { if (it.isHeld) it.release() }
         wifiLock?.let { if (it.isHeld) it.release() }

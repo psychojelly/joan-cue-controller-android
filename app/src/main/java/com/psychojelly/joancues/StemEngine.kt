@@ -91,7 +91,27 @@ class StemEngine(private val context: Context) {
         main.post { triggerCueInternal(cueId) }
     }
 
-    private fun triggerCueInternal(cueId: String) {
+    /**
+     * NEW way (Phase 1): fire the cue at a master-clock time.
+     * Early -> schedule on the handler; late/unsynced -> fire now, and if late,
+     * seek the started stems in by the overshoot so we land mid-phrase in sync.
+     */
+    fun triggerCueAt(cueId: String, playAtMaster: Double) {
+        val now = MasterClock.now()
+        if (now == null) { triggerCue(cueId); return }          // unsynced fallback
+        val delayMs = ((playAtMaster - now) * 1000).toLong()
+        when {
+            delayMs > 15 -> main.postDelayed({ triggerCueInternal(cueId, lateBySec = 0f) }, delayMs)
+            delayMs > -50 -> main.post { triggerCueInternal(cueId, lateBySec = 0f) }   // close enough
+            else -> {
+                val late = (-delayMs / 1000f)
+                status = "cue $cueId LATE by ${-delayMs}ms — seeking in"
+                main.post { triggerCueInternal(cueId, lateBySec = late) }
+            }
+        }
+    }
+
+    private fun triggerCueInternal(cueId: String, lateBySec: Float = 0f) {
         val cfg = config ?: run { Log.w(TAG, "Config not loaded"); return }
         val cues = cfg.getCuesInGroup(cueId)
         if (cues.isEmpty()) { Log.w(TAG, "Cue $cueId not found"); status = "cue $cueId not found"; return }
@@ -110,7 +130,7 @@ class StemEngine(private val context: Context) {
                 }
                 StemAction.STOP -> stopStem(entry.fileName, entry.speed)
                 StemAction.STOPALL -> stopAll(entry.speed)
-                StemAction.LOOP, StemAction.ONESHOT -> ensurePlaying(entry)
+                StemAction.LOOP, StemAction.ONESHOT -> ensurePlaying(entry, lateBySec)
             }
         }
     }
@@ -142,7 +162,7 @@ class StemEngine(private val context: Context) {
 
     // ---- internals -----------------------------------------------------------
 
-    private fun ensurePlaying(entry: StemCueEntry) {
+    private fun ensurePlaying(entry: StemCueEntry, lateBySec: Float = 0f) {
         val existing = synchronized(active) { active[entry.fileName] }
         if (existing != null) {
             // Already playing — just adjust volume. Don't restart. (Parity with Unity.)
@@ -162,6 +182,7 @@ class StemEngine(private val context: Context) {
                 val target = entry.volume ?: 1f
                 if (entry.speed > 0f) { p.setVolumeNow(0f); fadeTo(entry.fileName, p, target, entry.speed) }
                 else p.setVolumeNow(target)
+                if (lateBySec > 0.05f) p.seekTo(lateBySec)   // late arrival: land mid-phrase in sync
                 p.start {
                     // one-shot completion -> release (loop players never complete)
                     synchronized(active) { if (active[entry.fileName] == it) active.remove(entry.fileName) }

@@ -98,7 +98,7 @@ class PerformerActivity : AppCompatActivity() {
     private fun refresh() {
         val eng = PerformerService.engine
         val ip = localIp() ?: "?"
-        statusView.text = "this device: $ip : ${PerformerService.OSC_PORT}\n${eng?.status ?: "starting…"}"
+        statusView.text = "this device: $ip : ${PerformerService.OSC_PORT}\n${MasterClock.status()}\n${eng?.status ?: "starting…"}"
         cueView.text = eng?.lastCueId ?: "—"
         val stems = eng?.activeStems().orEmpty()
         stemsView.text = if (stems.isEmpty()) "(none)"
