@@ -1,0 +1,3223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Joan of the City — Audio Cue CSV Editor</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d0f14;
+      --surface:   #161a22;
+      --surface-2: #1c2233;
+      --border:    #252c3a;
+      --accent:    #4f8ef7;
+      --accent-hi: #82b0ff;
+      --text:      #dce3f0;
+      --muted:     #6b7a99;
+      --success:   #3ecf8e;
+      --danger:    #e05c5c;
+      --radius:    10px;
+      --font:      'Inter', 'Segoe UI', system-ui, sans-serif;
+      --mono:      'JetBrains Mono', 'Fira Code', monospace;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      min-height: 100vh;
+      padding: 28px 24px 48px;
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+    }
+
+    header h1 { font-size: 1.35rem; font-weight: 600; letter-spacing: 0.03em; }
+    header p  { margin-top: 4px; font-size: 0.82rem; color: var(--muted); }
+
+    /* ── Inline spinner for background fetches ── */
+    @keyframes csvSpin { to { transform: rotate(360deg); } }
+    .spinner {
+      display: inline-block; width: 11px; height: 11px;
+      border: 2px solid var(--border); border-top-color: var(--accent);
+      border-radius: 50%; animation: csvSpin 0.85s linear infinite;
+      vertical-align: -2px; margin-right: 6px;
+    }
+
+    /* ── Sticky top bar with global Undo/Redo (visible from every tab) ── */
+    .global-bar {
+      position: sticky; top: 0; z-index: 50;
+      display: flex; gap: 10px; align-items: center;
+      padding: 8px 14px; background: rgba(13, 15, 20, 0.92);
+      border: 1px solid var(--border); border-radius: var(--radius);
+      backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    }
+    .global-bar .spacer { flex: 1; }
+    .global-bar .toast { color: var(--muted); font-size: 0.78rem; font-family: var(--mono); }
+    .global-bar .toast.ok  { color: var(--success); }
+    .global-bar .toast.err { color: var(--danger); }
+
+    /* ── Collapsible "How to use this" help panel ── */
+    details.help {
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 0;
+    }
+    details.help > summary {
+      list-style: none; cursor: pointer; user-select: none;
+      padding: 12px 18px; font-size: 0.82rem; color: var(--accent);
+      display: flex; align-items: center; gap: 8px;
+    }
+    details.help > summary::-webkit-details-marker { display: none; }
+    details.help > summary::before {
+      content: '▸'; display: inline-block; transition: transform 0.15s; color: var(--muted);
+    }
+    details.help[open] > summary::before { transform: rotate(90deg); }
+    details.help > summary:hover { color: var(--accent-hi); }
+    .help-body {
+      padding: 0 22px 18px; font-size: 0.85rem; line-height: 1.55; color: var(--text);
+    }
+    .help-body h4 {
+      font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase;
+      color: var(--muted); margin: 14px 0 4px;
+    }
+    .help-body p, .help-body li { color: var(--text); }
+    .help-body ul { margin: 4px 0 4px 18px; }
+    .help-body code {
+      font-family: var(--mono); font-size: 0.82em; color: var(--accent);
+      background: var(--bg); padding: 1px 5px; border-radius: 3px;
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 18px;
+    }
+
+    .panel-title {
+      font-size: 0.7rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 6px;
+      margin-bottom: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+
+    label.field { font-size: 0.74rem; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+
+    input[type=text], input[type=number], select {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 0.85rem;
+      padding: 7px 10px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    input:focus, select:focus { border-color: var(--accent); }
+    select { cursor: pointer; min-width: 180px; }
+
+    button {
+      font-family: inherit;
+      font-size: 0.85rem;
+      font-weight: 600;
+      padding: 8px 16px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface-2);
+      color: var(--text);
+      cursor: pointer;
+      transition: border-color 0.15s, color 0.15s, background 0.15s;
+    }
+    button:hover { border-color: var(--accent); color: var(--accent-hi); }
+    button.primary { background: var(--accent); color: #0d0f14; border-color: var(--accent); }
+    button.primary:hover { background: var(--accent-hi); color: #0d0f14; }
+    button.danger:hover { border-color: var(--danger); color: var(--danger); }
+
+    .checkbox-field {
+      font-size: 0.74rem; color: var(--muted);
+      display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;
+      padding-bottom: 7px;
+    }
+
+    #status {
+      font-size: 0.78rem; color: var(--muted);
+      background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+      padding: 7px 14px; font-family: var(--mono); transition: color 0.3s;
+    }
+    #status.ok  { color: var(--success); border-color: var(--success); }
+    #status.err { color: var(--danger);  border-color: var(--danger);  }
+
+    /* ── Metadata mini-editor ── */
+    .meta-grid { display: flex; flex-wrap: wrap; gap: 14px; }
+    .meta-grid .field input { width: 360px; max-width: 70vw; }
+    .meta-grid .field input.short { width: 90px; }
+
+    /* ── Isolated (per-cue) editor ── */
+    .cue-group-head {
+      font-family: var(--mono); font-weight: 700; font-size: 0.92rem; color: var(--accent-hi);
+      margin: 22px 0 10px; padding-bottom: 5px; border-bottom: 1px dashed var(--border);
+      display: flex; align-items: center; gap: 12px;
+    }
+    .cue-group-head:first-child { margin-top: 0; }
+    .play-cue-btn {
+      font-size: 0.72rem; padding: 3px 10px;
+      background: var(--surface-2); color: var(--accent);
+      border: 1px solid var(--border); border-radius: 4px; cursor: pointer;
+      font-family: var(--mono); font-weight: 600;
+    }
+    .play-cue-btn:hover { border-color: var(--accent); color: var(--accent-hi); }
+    .play-cue-btn.playing { background: var(--accent); color: #0d0f14; border-color: var(--accent); }
+    table.timeline thead th .play-cue-mini {
+      display: block; margin: 4px auto 0;
+      font-size: 0.6rem; padding: 1px 6px;
+      background: var(--surface); color: var(--accent);
+      border: 1px solid var(--border); border-radius: 3px; cursor: pointer;
+      font-family: var(--mono);
+    }
+    table.timeline thead th .play-cue-mini:hover { border-color: var(--accent); color: var(--accent-hi); }
+    table.timeline thead th .play-cue-mini.playing { background: var(--accent); color: #0d0f14; }
+    .track-section { margin-bottom: 16px; }
+    .track-head {
+      display: flex; align-items: center; gap: 10px; margin-bottom: 6px;
+    }
+    .track-badge {
+      font-family: var(--mono); font-weight: 700; font-size: 0.95rem;
+      width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
+      border-radius: 6px; background: var(--surface-2); border: 1px solid var(--border); color: var(--accent);
+    }
+    .track-empty { color: var(--muted); font-size: 0.8rem; font-style: italic; padding: 4px 0; }
+
+    /* ── Tables ── */
+    .table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+    table.csv { border-collapse: collapse; table-layout: fixed; }
+    table.csv th, table.csv td {
+      border: 1px solid var(--border); padding: 0; vertical-align: top;
+    }
+    table.csv thead th {
+      background: var(--surface-2); color: var(--muted);
+      font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase;
+      font-weight: 600; text-align: left; padding: 7px 9px; position: relative; user-select: none;
+    }
+    table.csv th .resizer {
+      position: absolute; top: 0; right: -3px; width: 7px; height: 100%;
+      cursor: col-resize; z-index: 2;
+    }
+    table.csv th .resizer:hover { background: var(--accent); opacity: 0.5; }
+    table.csv td textarea {
+      width: 100%; min-height: 30px; resize: vertical; display: block;
+      background: transparent; border: 0; color: var(--text);
+      font-family: var(--mono); font-size: 0.8rem; padding: 6px 9px;
+      outline: none; line-height: 1.35; overflow: hidden;
+    }
+    table.csv td textarea:focus { background: #11151d; box-shadow: inset 0 0 0 1px var(--accent); }
+    table.csv tbody tr:hover td { background: rgba(79,142,247,0.04); }
+
+    /* ── Row type tinting (SQ = teal, VQ = orange) ── */
+    table.csv tbody tr.row-sq td { background: rgba(58, 178, 178, 0.07); }
+    table.csv tbody tr.row-vq td { background: rgba(247, 161, 79, 0.08); }
+    table.csv tbody tr.row-sq:hover td { background: rgba(58, 178, 178, 0.14); }
+    table.csv tbody tr.row-vq:hover td { background: rgba(247, 161, 79, 0.16); }
+    table.csv tbody tr.row-sq td.drag-cell,
+    table.csv tbody tr.row-vq td.drag-cell { background-image: none; }
+
+    /* ── Structured cell widgets (Action dropdown, Volume slider) ── */
+    .action-cell, .vol-cell { display: flex; gap: 4px; padding: 4px 6px; align-items: center; }
+    .action-cell select {
+      background: var(--bg); color: var(--text); border: 1px solid var(--border);
+      border-radius: 4px; font-family: var(--mono); font-size: 0.78rem; padding: 3px 4px;
+      min-width: 0; flex: 1 1 auto; cursor: pointer; outline: none;
+    }
+    .action-cell select:focus { border-color: var(--accent); }
+    .action-cell input.action-custom {
+      flex: 1 1 auto; min-width: 60px; background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 4px; padding: 3px 6px;
+      font-family: var(--mono); font-size: 0.78rem; outline: none;
+    }
+    .action-cell input.action-custom:focus { border-color: var(--accent); }
+    .vol-cell input[type=range] {
+      flex: 1 1 auto; min-width: 50px; accent-color: var(--accent); cursor: pointer;
+    }
+    .vol-cell input.vol-num {
+      width: 46px; background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 4px; padding: 3px 4px;
+      font-family: var(--mono); font-size: 0.78rem; text-align: right; outline: none;
+    }
+    .vol-cell input.vol-num:focus { border-color: var(--accent); }
+    .vol-cell.empty input.vol-num { color: var(--muted); }
+    .vol-cell.out-of-range input.vol-num { color: var(--danger); border-color: var(--danger); }
+
+    /* StemFileName as a select of known files, with Custom… fallback. */
+    .stem-name-cell.missing-stem select,
+    .stem-name-cell.missing-stem input.action-custom {
+      border-color: var(--danger); color: var(--danger);
+    }
+
+    /* Row-level red bar on the left when a row has any data issue
+       (missing stem file, out-of-range volume, etc). */
+    table.csv tbody tr.row-issue td:first-child {
+      box-shadow: inset 3px 0 0 var(--danger);
+    }
+
+    /* VQ rows get a three-select Action widget stacked vertically. */
+    .vq-action-cell { flex-direction: column; align-items: stretch; gap: 4px; }
+    .vq-action-cell select { width: 100%; flex: 0 0 auto; }
+    .vq-action-cell .vq-label {
+      font-size: 0.62rem; letter-spacing: 0.05em; text-transform: uppercase;
+      color: var(--muted); margin-top: 2px;
+    }
+
+    /* ── Drag-to-reorder ── */
+    .drag-col { width: 30px; }
+    table.csv td.drag-cell { text-align: center; vertical-align: middle; }
+    .grip {
+      cursor: grab; color: var(--muted); font-size: 1rem; line-height: 1;
+      padding: 6px 2px; user-select: none;
+    }
+    .grip:hover { color: var(--accent); }
+    .grip:active { cursor: grabbing; }
+    table.csv tbody tr.dragging { opacity: 0.4; }
+    table.csv tbody tr.drop-before td { box-shadow: inset 0 2px 0 var(--accent); }
+    table.csv tbody tr.drop-after td  { box-shadow: inset 0 -2px 0 var(--accent); }
+
+    .row-actions { width: 64px; }
+    .row-actions .cell-btns { display: flex; gap: 3px; padding: 4px; justify-content: center; }
+    .mini-btn {
+      width: 24px; height: 24px; padding: 0; font-size: 0.95rem; line-height: 1;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--surface); color: var(--muted); border: 1px solid var(--border);
+    }
+    .mini-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .mini-btn.del:hover { border-color: var(--danger); color: var(--danger); }
+
+    .add-track-btn { font-size: 0.74rem; padding: 5px 12px; }
+
+    .hint { font-size: 0.74rem; color: var(--muted); margin-top: 8px; }
+    .hint code { color: var(--accent); font-family: var(--mono); }
+    .count-tag { font-family: var(--mono); color: var(--accent); font-size: 0.72rem; }
+
+    /* ── Tabs ── */
+    .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); }
+    .tab-btn {
+      background: transparent; border: 1px solid transparent; border-bottom: 0;
+      border-radius: 8px 8px 0 0; color: var(--muted); font-weight: 600;
+      font-size: 0.85rem; padding: 9px 18px; cursor: pointer; margin-bottom: -1px;
+    }
+    .tab-btn:hover { color: var(--text); border-color: transparent; }
+    .tab-btn.active {
+      color: var(--accent-hi); background: var(--surface);
+      border-color: var(--border); border-bottom-color: var(--surface);
+    }
+    .tab-pane { display: flex; flex-direction: column; gap: 22px; }
+
+    /* ── Stem picker ── */
+    .stem-picker {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+      gap: 2px 14px; max-height: 220px; overflow-y: auto;
+      border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; background: var(--bg);
+    }
+    .stem-picker label {
+      display: flex; align-items: center; gap: 7px; font-family: var(--mono);
+      font-size: 0.78rem; color: var(--text); cursor: pointer; padding: 2px 0;
+    }
+    .stem-picker label:hover { color: var(--accent-hi); }
+    .stem-picker .stem-times { color: var(--muted); font-size: 0.7rem; }
+    .stem-picker .empty { color: var(--muted); font-style: italic; grid-column: 1 / -1; }
+
+    /* ── Timeline ── */
+    .timeline-legend { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 12px; font-size: 0.72rem; color: var(--muted); }
+    .timeline-legend .key { display: flex; align-items: center; gap: 6px; }
+    .timeline-legend .swatch { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+    .timeline-scroll { overflow: auto; border: 1px solid var(--border); border-radius: 8px; max-height: 70vh; }
+
+    table.timeline { border-collapse: separate; border-spacing: 0; }
+    table.timeline th, table.timeline td { border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+    table.timeline thead th {
+      position: sticky; top: 0; z-index: 3; background: var(--surface-2);
+      color: var(--muted); font-family: var(--mono); font-size: 0.66rem; font-weight: 600;
+      text-align: center; padding: 6px 4px;
+      width: 78px; min-width: 78px; max-width: 78px;
+      vertical-align: bottom; white-space: normal;
+      overflow-wrap: anywhere; word-break: break-word;
+    }
+    table.timeline thead th .cue-name {
+      display: block; margin: 0 auto; line-height: 1.25;
+      max-height: 4.5em; overflow: hidden;
+    }
+    table.timeline thead th.corner { left: 0; z-index: 4; text-align: left; }
+    table.timeline th.stem-name, table.timeline td.stem-name {
+      position: sticky; left: 0; z-index: 2; background: var(--surface);
+      font-family: var(--mono); font-size: 0.74rem; color: var(--text);
+      text-align: left; padding: 0 12px; white-space: nowrap; min-width: 200px; max-width: 360px;
+    }
+    table.timeline tbody tr:hover td.stem-name { color: var(--accent-hi); }
+    .stem-name-wrap { display: flex; align-items: center; gap: 8px; }
+    .stem-name-wrap span { overflow: hidden; text-overflow: ellipsis; }
+    .play-btn {
+      flex: 0 0 auto; width: 22px; height: 22px; padding: 0; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center; font-size: 0.58rem;
+      background: var(--surface-2); color: var(--accent); border: 1px solid var(--border);
+      cursor: pointer; line-height: 1;
+    }
+    .play-btn:hover { border-color: var(--accent); color: var(--accent-hi); }
+    .play-btn.playing { background: var(--accent); color: #0d0f14; border-color: var(--accent); }
+    .play-btn.loading { opacity: 0.6; }
+    table.timeline td.slot {
+      width: 78px; min-width: 78px; max-width: 78px; height: 52px; padding: 0;
+      position: relative; vertical-align: bottom; background: var(--bg);
+    }
+    table.timeline td.slot.active { background: #11151d; }
+    /* the volume bar grows up from the bottom */
+    .bar { position: absolute; left: 8px; right: 8px; bottom: 0; border-radius: 3px 3px 0 0; min-height: 2px; }
+    .bar.sustain { left: 0; right: 0; border-radius: 0; background: #2c3a4f; opacity: 0.85; }
+    .bar.start  { background: var(--success); }
+    .bar.hold   { background: var(--accent); }
+    .bar.oneshot{ background: #f7a14f; }
+    .bar.stop   { background: var(--danger); height: 3px !important; bottom: 0; }
+    .slot .vlabel { position: absolute; top: 2px; left: 0; right: 0; text-align: center; font-family: var(--mono); font-size: 0.58rem; color: var(--text); opacity: 0.8; pointer-events: none; }
+    .slot .cap-start { position: absolute; left: 4px; right: 4px; top: 0; height: 2px; background: var(--success); }
+
+    /* ── Modal popup (export confirmation, name-cue prompts, etc.) ── */
+    .modal-backdrop {
+      position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55);
+      display: flex; align-items: center; justify-content: center; z-index: 300;
+    }
+    .modal {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+      min-width: 380px; max-width: 560px; max-height: 84vh; overflow: auto;
+      box-shadow: 0 14px 44px rgba(0, 0, 0, 0.55);
+    }
+    .modal-head {
+      padding: 14px 18px; border-bottom: 1px solid var(--border);
+      font-size: 0.95rem; font-weight: 600; color: var(--text);
+    }
+    .modal-body { padding: 16px 18px; font-size: 0.86rem; line-height: 1.55; }
+    .modal-body p { margin: 0 0 10px; }
+    .modal-body label {
+      display: flex; align-items: flex-start; gap: 8px; margin: 6px 0;
+      cursor: pointer; user-select: none; color: var(--text); font-size: 0.86rem;
+    }
+    .modal-body label input[type=checkbox] { margin-top: 3px; }
+    .modal-body .strong { color: var(--accent-hi); font-weight: 600; }
+    .modal-body code {
+      font-family: var(--mono); font-size: 0.85em; color: var(--accent);
+      background: var(--bg); padding: 1px 5px; border-radius: 3px;
+    }
+    .modal-body input[type=text] {
+      width: 100%; margin-top: 6px;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+      color: var(--text); font-family: var(--mono); font-size: 0.88rem;
+      padding: 8px 10px; outline: none;
+    }
+    .modal-body input[type=text]:focus { border-color: var(--accent); }
+    .modal-foot {
+      padding: 12px 18px; border-top: 1px solid var(--border);
+      display: flex; gap: 10px; justify-content: flex-end;
+    }
+    .modal-foot button.primary { background: var(--accent); color: #0d0f14; border-color: var(--accent); }
+    .modal-foot button.primary:hover { background: var(--accent-hi); border-color: var(--accent-hi); }
+
+    /* Inline cell editor popover (click an event in the timeline). */
+    .cell-editor {
+      position: fixed; z-index: 280;
+      background: var(--surface); border: 1px solid var(--accent); border-radius: 8px;
+      padding: 12px 14px; min-width: 280px; max-width: 340px;
+      box-shadow: 0 10px 28px rgba(0,0,0,0.55); font-size: 0.82rem;
+    }
+    .cell-editor .ce-head {
+      font-family: var(--mono); font-size: 0.78rem; color: var(--accent-hi);
+      margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border);
+      word-break: break-all;
+    }
+    .cell-editor label {
+      display: flex; align-items: center; gap: 8px; margin: 7px 0;
+      font-size: 0.74rem; color: var(--muted);
+    }
+    .cell-editor label > span:first-child { width: 80px; flex: 0 0 80px; }
+    .cell-editor select, .cell-editor input[type=text], .cell-editor textarea {
+      flex: 1 1 auto; background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 4px; padding: 5px 7px;
+      font-family: var(--mono); font-size: 0.78rem; outline: none;
+    }
+    .cell-editor select:focus, .cell-editor input[type=text]:focus, .cell-editor textarea:focus {
+      border-color: var(--accent);
+    }
+    .cell-editor textarea { resize: vertical; min-height: 36px; }
+    .cell-editor input[type=range] { flex: 1; accent-color: var(--accent); }
+    .cell-editor .ce-vol-num {
+      font-family: var(--mono); width: 36px; text-align: right; color: var(--text); font-size: 0.78rem;
+    }
+    .cell-editor .ce-foot {
+      display: flex; gap: 8px; margin-top: 12px; justify-content: space-between;
+      border-top: 1px solid var(--border); padding-top: 10px;
+    }
+    .cell-editor .ce-foot button { font-size: 0.78rem; padding: 6px 12px; }
+    .cell-editor .ce-foot .danger { color: var(--danger); border-color: var(--border); }
+    .cell-editor .ce-foot .danger:hover { border-color: var(--danger); }
+    table.timeline td.slot[data-cue-row-id] { cursor: pointer; }
+    table.timeline td.slot[data-cue-row-id]:hover { outline: 1px solid var(--accent); outline-offset: -1px; }
+
+    /* "Pick by cue" section in the Visualize tab. */
+    .cue-pick-section {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+      padding: 10px 14px; margin: 10px 0 12px;
+    }
+    .cue-pick-head {
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: 0.78rem; color: var(--muted); cursor: pointer; user-select: none;
+    }
+    .cue-pick-toggle { font-size: 0.72rem; color: var(--accent); }
+    .cue-pick-panel { display: flex; gap: 12px; margin-top: 10px; flex-wrap: wrap; }
+    .cue-pick-track { flex: 1 1 200px; min-width: 0; }
+    .cue-pick-track h5 {
+      font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase;
+      color: var(--muted); margin-bottom: 6px; border-bottom: 1px solid var(--border); padding-bottom: 3px;
+    }
+    .cue-pick-list {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
+      gap: 4px; max-height: 220px; overflow-y: auto; padding-right: 2px;
+    }
+    .cue-pick-btn {
+      text-align: center; font-family: var(--mono); font-size: 0.72rem;
+      padding: 4px 6px; background: var(--surface); color: var(--text);
+      border: 1px solid var(--border); border-radius: 4px; cursor: pointer;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .cue-pick-btn:hover { border-color: var(--accent); color: var(--accent-hi); }
+    .cue-pick-empty { color: var(--muted); font-size: 0.74rem; font-style: italic; padding: 6px 0; }
+
+    /* Instant tooltip used in the timeline (replaces native title= delay). */
+    #tip-popup {
+      position: fixed; pointer-events: none; z-index: 200;
+      background: #0a0c11; color: var(--text); border: 1px solid var(--accent);
+      border-radius: 6px; padding: 7px 10px; font-family: var(--mono); font-size: 0.74rem;
+      max-width: 360px; white-space: pre-line; line-height: 1.35;
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5); display: none;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>Joan of the City — Audio Cue CSV Editor</h1>
+    <p>Edit <code style="font-family:var(--mono);color:var(--accent)">audio_cues.csv</code> — isolate cues by A/B/C track, edit inline, export with auto version bump.</p>
+  </header>
+
+  <!-- Sticky top bar — Undo/Redo are reachable from every tab. -->
+  <div class="global-bar">
+    <button id="undo-btn" disabled>↶ Undo</button>
+    <button id="redo-btn" disabled>↷ Redo</button>
+    <button id="cell-mode-btn" title="Toggle between dropdowns/sliders and plain text editing">Cells: Widgets</button>
+    <div class="spacer"></div>
+    <span class="toast" id="action-toast"></span>
+  </div>
+
+  <!-- Plain-language help, collapsed by default. -->
+  <details class="help">
+    <summary>How to use this</summary>
+    <div class="help-body">
+      <h4>1 — Open your file</h4>
+      <p>Click <strong>Import CSV…</strong> in the File panel and pick <code>audio_cues.csv</code>. If you launched with <code>start-csv-editor.bat</code>, it can auto-load via <strong>Fetch</strong> too.</p>
+
+      <h4>2 — Find what you want to edit</h4>
+      <p>On the <strong>Edit</strong> tab, use <strong>Select cue</strong> to focus on one cue (e.g. <code>211</code>). Optionally:</p>
+      <ul>
+        <li><strong>Cue range</strong> shows several cues at once.</li>
+        <li><strong>Prefix</strong> (A/B/C) and <strong>Type</strong> (SQ/VQ) narrow which rows show.</li>
+        <li><strong>Text search</strong> looks across every field for words like “communion”.</li>
+      </ul>
+      <p>Or scroll the <strong>Full CSV</strong> at the bottom. SQ rows are tinted teal, VQ rows orange.</p>
+
+      <h4>3 — Make changes</h4>
+      <ul>
+        <li>Click a cell to edit. <strong>Action</strong> is a dropdown (with a Custom… option). <strong>Volume</strong> is a slider.</li>
+        <li>Drag the grip <span style="font-family:var(--mono)">⠿</span> on any row to reorder it.</li>
+        <li>Press <strong>+ Add</strong> next to a track (A/B/C) to add a new row for that cue.</li>
+      </ul>
+
+      <h4>4 — See how it plays out</h4>
+      <p>The <strong>Visualize stems</strong> tab shows when each audio file starts, holds, or stops across cues — pick stems on the left and the timeline appears on the right. The ▶ button plays a stem.</p>
+
+      <h4>5 — Save</h4>
+      <p>Click <strong>Export → audio_cues.csv</strong>. You'll be asked whether to bump version numbers, and the previous file is kept as <code>audio_cues_v&lt;n&gt;.csv</code> as a safety net.</p>
+
+      <h4>If something goes wrong</h4>
+      <p>Use <strong>↶ Undo</strong> (or <strong>Ctrl+Z</strong> outside a text field) to take back recent changes. Your work is also auto-saved in the browser, so closing the tab won't lose it.</p>
+    </div>
+  </details>
+
+  <!-- ── File toolbar ── -->
+  <div class="panel">
+    <div class="panel-title">File</div>
+    <div class="toolbar">
+      <button id="open-btn" class="primary" style="display:none" title="Pick a CSV and let the editor save directly back to it (Chrome / Edge).">Open from disk…</button>
+      <button id="save-btn" style="display:none" title="Save back to the file you opened, in place.">Save to disk</button>
+      <button id="reopen-btn" style="display:none" title="Re-grant permission to the last file you opened."></button>
+      <button id="import-btn">Import CSV…</button>
+      <input type="file" id="import-file" accept=".csv,text/csv" style="display:none" />
+      <label class="field">
+        Load from path
+        <input type="text" id="load-path" value="../../StreamingAssets/JoanAudio/audio_cues.csv" style="width:340px" />
+      </label>
+      <button id="load-path-btn">Fetch</button>
+      <button id="refresh-stems-btn" title="Fetches the list of audio files from the GitHub repo so the editor knows what exists.">
+        <span class="spinner" id="stem-spinner" style="display:none"></span>
+        <span id="stem-list-label">Load stem list</span>
+      </button>
+      <div style="flex:1"></div>
+      <label class="checkbox-field"><input type="checkbox" id="backup-chk" checked /> Keep backup of previous version</label>
+      <button id="bump-versions-btn" title="Bump version numbers in memory (autosave keeps them; Save / Export writes them out).">Bump versions…</button>
+      <button id="export-btn">Export → audio_cues.csv</button>
+    </div>
+    <div id="status" style="margin-top:14px">No file loaded — Import a CSV, or Fetch from path (Fetch only works when served over http://, not file://).</div>
+    <div class="hint">Export downloads <code>audio_cues.csv</code> with <code>CsvVersion</code> bumped, and (if enabled) saves the previous version as <code>audio_cues_v&lt;n&gt;.csv</code>.</div>
+  </div>
+
+  <!-- ── Tabs ── -->
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="edit">Edit</button>
+    <button class="tab-btn" data-tab="view">Visualize stems</button>
+  </div>
+
+  <div id="tab-edit" class="tab-pane">
+
+  <!-- ── Metadata ── -->
+  <div class="panel" id="meta-panel" style="display:none">
+    <div class="panel-title">Metadata</div>
+    <div class="meta-grid" id="meta-grid"></div>
+  </div>
+
+  <!-- ── Isolated cue editor ── -->
+  <div class="panel" id="isolate-panel" style="display:none">
+    <div class="panel-title">
+      <span>Isolated cue — A / B / C</span>
+    </div>
+    <div class="toolbar" style="margin-bottom:14px">
+      <label class="field">
+        Select cue
+        <select id="cue-select"></select>
+      </label>
+      <label class="field">
+        Filter cue dropdown
+        <input type="text" id="cue-filter" placeholder="narrows the list above…" style="width:170px" />
+      </label>
+      <label class="field">
+        Cue range (end)
+        <select id="cue-range"></select>
+      </label>
+      <label class="field">
+        Prefix
+        <select id="prefix-select"></select>
+      </label>
+      <label class="field">
+        Type
+        <select id="type-select"></select>
+      </label>
+      <label class="field">
+        Text search (all fields)
+        <input type="text" id="text-search" placeholder="show every row containing…" style="width:220px" />
+      </label>
+    </div>
+    <div id="isolate-body"></div>
+  </div>
+
+  <!-- ── Full CSV ── -->
+  <div class="panel" id="full-panel" style="display:none">
+    <div class="panel-title">
+      <span>Full CSV <span class="count-tag" id="row-count"></span></span>
+    </div>
+    <div class="toolbar" style="margin-bottom:12px">
+      <label class="field">
+        Find row
+        <input type="text" id="full-filter" placeholder="filter any column…" style="width:260px" />
+      </label>
+      <button id="add-row-btn">+ Add row</button>
+      <button id="reset-widths-btn">Reset column widths</button>
+    </div>
+    <div class="table-scroll">
+      <table class="csv" id="full-table">
+        <colgroup id="full-colgroup"></colgroup>
+        <thead id="full-thead"></thead>
+        <tbody id="full-tbody"></tbody>
+      </table>
+    </div>
+    <div class="hint">Drag the right edge of a column header to resize its width. Drag the bottom-right corner of any cell to resize its height. Edits here sync live with the isolated view above.</div>
+  </div>
+
+  </div><!-- /tab-edit -->
+
+  <!-- ── Visualize stems (view only) ── -->
+  <div id="tab-view" class="tab-pane" style="display:none">
+    <div class="panel">
+      <div class="panel-title"><span>Stems</span> <span class="count-tag" id="stem-count"></span></div>
+      <div class="toolbar" style="margin-bottom:10px">
+        <label class="field">
+          Prefix
+          <select id="stem-prefix"></select>
+        </label>
+        <label class="field">
+          Filter stems
+          <input type="text" id="stem-filter" placeholder="type to filter…" style="width:240px" />
+        </label>
+        <button id="stem-all-btn">Select all (visible)</button>
+        <button id="stem-clear-btn">Clear</button>
+        <div style="flex:1"></div>
+        <button id="stem-stop-btn" class="danger">■ Stop audio</button>
+      </div>
+      <div class="toolbar">
+        <label class="field" style="flex:1">
+          Audio base URL (the editor appends <code style="color:var(--accent)">/&lt;StemName&gt;.wav</code> or <code style="color:var(--accent)">.mp3</code>)
+          <input type="text" id="stem-base-url" style="width:100%;max-width:560px"
+                 value="https://raw.githubusercontent.com/dlobser/opera-audio/main/Stems" />
+        </label>
+      </div>
+      <div class="cue-pick-section">
+        <div class="cue-pick-head">
+          <span>Or pick by cue (auto-adds the cue's stems to the selection)</span>
+          <span class="cue-pick-toggle" id="cue-pick-toggle">show</span>
+        </div>
+        <div class="cue-pick-panel" id="cue-pick-panel" style="display:none"></div>
+      </div>
+      <div class="stem-picker" id="stem-picker"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">
+        <span>Timeline</span>
+        <button id="add-cue-btn" class="primary" style="font-size:0.75rem;padding:5px 12px">+ Add cue</button>
+      </div>
+      <div class="timeline-legend" id="timeline-legend">
+        <div class="key"><span class="swatch" style="background:var(--success)"></span> Start (Loop)</div>
+        <div class="key"><span class="swatch" style="background:var(--accent)"></span> Hold / change</div>
+        <div class="key"><span class="swatch" style="background:#f7a14f"></span> One-shot</div>
+        <div class="key"><span class="swatch" style="background:var(--danger)"></span> Stop</div>
+        <div class="key"><span class="swatch" style="background:#2c3a4f"></span> Sustaining (between events)</div>
+        <div class="key">Bar height = volume</div>
+      </div>
+      <div class="timeline-scroll"><div id="timeline"></div></div>
+      <div class="hint">Each row is one audio file; each column is a cue in play order. Pick stems above. View-only — nothing here edits the CSV.</div>
+    </div>
+  </div>
+
+  <script>
+    // ── State ──────────────────────────────────────────────────────────────────
+    const TRACKS = ['A', 'B', 'C'];
+    const DEFAULT_WIDTHS = [130, 260, 210, 70, 100, 75, 75];
+    const WIDTH_LS_KEY = 'csv_editor_col_widths';
+
+    let metaRows = [];          // rows before the header, each an array of cells
+    let header   = [];          // header row cells
+    let data     = [];          // [{ id, cells:[...] }]
+    let colWidths = loadWidths();
+    let rowSeq = 0;
+    let originalText = null;     // text exactly as last loaded/exported (for backup)
+    let loadedVersion = null;    // CsvVersion at time of load/last export
+
+    // ── CSV parse / serialize (RFC-4180-ish) ─────────────────────────────────────
+    function parseCSV(text) {
+      const rows = []; let row = []; let field = ''; let inQuotes = false; let i = 0;
+      const pushField = () => { row.push(field); field = ''; };
+      const pushRow   = () => { rows.push(row); row = []; };
+      while (i < text.length) {
+        const c = text[i];
+        if (inQuotes) {
+          if (c === '"') {
+            if (text[i + 1] === '"') { field += '"'; i += 2; continue; }
+            inQuotes = false; i++; continue;
+          }
+          field += c; i++; continue;
+        }
+        if (c === '"') { inQuotes = true; i++; continue; }
+        if (c === ',') { pushField(); i++; continue; }
+        if (c === '\r') { i++; continue; }
+        if (c === '\n') { pushField(); pushRow(); i++; continue; }
+        field += c; i++;
+      }
+      pushField(); pushRow();
+      while (rows.length && rows[rows.length - 1].every(c => c === '')) rows.pop();
+      return rows;
+    }
+
+    function serializeCSV(rows) {
+      return rows.map(r => r.map(cell => {
+        const s = cell == null ? '' : String(cell);
+        return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+      }).join(',')).join('\n');
+    }
+
+    const HEADER_KEYS = new Set(['BaseUrl', 'CsvVersion']);
+
+    // ── Autosave (per-tab safety net) ──────────────────────────────────────────
+    const AUTOSAVE_LS_KEY = 'csv_editor_autosave';
+    let autosaveTimer = null;
+    function markDirty() {
+      clearTimeout(autosaveTimer);
+      autosaveTimer = setTimeout(persistAutosave, 800);
+    }
+    function persistAutosave() {
+      if (!header.length) return;
+      const rows = [...metaRows.map(r => r.slice()), header.slice(), ...data.map(r => r.cells.slice())];
+      const text = serializeCSV(rows);
+      try {
+        localStorage.setItem(AUTOSAVE_LS_KEY, JSON.stringify({ text, savedAt: Date.now() }));
+      } catch (_) { /* quota — ignore */ }
+    }
+    function loadAutosave() {
+      try { return JSON.parse(localStorage.getItem(AUTOSAVE_LS_KEY)); } catch (_) { return null; }
+    }
+    function clearAutosave() { localStorage.removeItem(AUTOSAVE_LS_KEY); }
+
+    // Public entry-point. Asks the user whether to restore an autosave if one is
+    // present and differs from the file being loaded.
+    function loadCsvText(text, opts = {}) {
+      const auto = loadAutosave();
+      if (auto && auto.text && auto.text !== text) {
+        const body = document.createElement('div');
+        const fileLine = opts.fileDate
+          ? `last saved on <span class="strong">${new Date(opts.fileDate).toLocaleString()}</span>`
+          : 'just loaded';
+        body.innerHTML = `
+          <p>You have an <span class="strong">autosave</span> in this browser from
+             <span class="strong">${new Date(auto.savedAt).toLocaleString()}</span>
+             that's different from the file you're loading.</p>
+          <p>The file you're loading was ${fileLine}.</p>
+          <p>Continue from the autosave (your unsaved edits) or discard it and load the file as-is?</p>
+        `;
+        showModal({
+          title: 'Restore unsaved changes?',
+          body,
+          confirmLabel: 'Use autosave',
+          cancelLabel: 'Discard autosave',
+          onConfirm: () => {
+            _applyLoadedText(auto.text);
+            originalText = text;             // disk file remains the export-backup baseline
+            markDirty();                     // refresh autosave timestamp with restored content
+            setStatus(`Restored autosave from ${new Date(auto.savedAt).toLocaleString()}.`, 'ok');
+          },
+          onCancel: () => {
+            _applyLoadedText(text);
+            clearAutosave();
+          },
+        });
+        return;
+      }
+      _applyLoadedText(text);
+      clearAutosave();
+    }
+
+    function _applyLoadedText(text) {
+      const rows = parseCSV(text);
+      let headerIdx = rows.findIndex(r => (r[0] || '').trim() === 'CueId');
+      if (headerIdx < 0) headerIdx = 0;
+      metaRows = rows.slice(0, headerIdx).map(r => r.slice());
+      header   = rows[headerIdx] ? rows[headerIdx].slice() : ['CueId','Notes','StemFileName','Version','Action','Volume','Speed'];
+      const nCols = header.length;
+      data = rows.slice(headerIdx + 1).map(r => {
+        const cells = r.slice(0, nCols);
+        while (cells.length < nCols) cells.push('');
+        return { id: ++rowSeq, cells };
+      });
+      if (colWidths.length !== nCols) colWidths = DEFAULT_WIDTHS.slice(0, nCols);
+
+      // VQ rows never reference an audio stem. If StemFileName has stray text
+      // (e.g. authored by hand), fold it into Notes and clear it so the data
+      // model is consistent with the editor's assumptions.
+      const stemCol  = header.findIndex(h => (h || '').trim() === 'StemFileName');
+      const notesCol = header.findIndex(h => (h || '').trim() === 'Notes');
+      let migrated = 0;
+      if (stemCol >= 0 && notesCol >= 0) {
+        for (const r of data) {
+          if ((cueType(r.cells[0]) || '').toUpperCase() !== 'VQ') continue;
+          const sn = (r.cells[stemCol] || '').trim();
+          if (!sn) continue;
+          const existing = (r.cells[notesCol] || '').trim();
+          r.cells[notesCol] = existing ? `${existing} ${sn}` : sn;
+          r.cells[stemCol]  = '';
+          migrated++;
+        }
+      }
+
+      loadedVersion = currentVersion();
+      originalText = text;
+      resetHistory();
+      renderAll();
+      if (migrated > 0) {
+        setStatus(`Moved StemFileName → Notes on ${migrated} VQ row${migrated === 1 ? '' : 's'} (VQ cues don't use audio files).`, 'ok');
+      }
+    }
+
+    function metaRowFor(key) { return metaRows.find(r => (r[0] || '').trim() === key); }
+    function currentVersion() {
+      const r = metaRowFor('CsvVersion');
+      const v = r ? parseInt(r[1], 10) : NaN;
+      return Number.isFinite(v) ? v : 0;
+    }
+
+    // ── CueId helpers ─────────────────────────────────────────────────────────
+    function parseCueId(id) {
+      const s = (id || '').trim();
+      const idx = s.indexOf('_');
+      if (idx < 0) return { track: '', cue: s };
+      return { track: s.slice(0, idx), cue: s.slice(idx + 1) };
+    }
+
+    // Group key used by the dropdown / isolated view. Keyed by the scene number so
+    // A_SQ211, B_SQ211 and A_VQ211 all collapse to "211". Suffixes that contain an
+    // underscore (e.g. VQ_L01, VQ_V01) keep their full suffix so those video cues
+    // stay distinct instead of merging on a trailing "01".
+    function cueGroupKey(id) {
+      const { cue } = parseCueId(id);
+      if (!cue) return '';
+      if (cue.includes('_')) return cue;
+      const m = cue.match(/\d+(?:\.\d+)?/);
+      return m ? m[0] : cue;
+    }
+
+    // A representative full suffix (e.g. "SQ211") for a group, so adding a new row
+    // to a track prefills a sensible CueId rather than the bare number. When a type
+    // filter is active, prefer a row of that type, falling back to <type><number>.
+    function representativeSuffix(group, track, typeF) {
+      const match = r => cueGroupKey(r.cells[0]) === group && (!typeF || cueType(r.cells[0]) === typeF);
+      let row = data.find(r => match(r) && parseCueId(r.cells[0]).track === track);
+      if (!row) row = data.find(match);
+      if (row) return parseCueId(row.cells[0]).cue;
+      if (typeF && /^\d/.test(group)) return `${typeF}${group}`;
+      return group;
+    }
+
+    function uniqueCues() {
+      const seen = new Set();
+      for (const row of data) {
+        const id = (row.cells[0] || '').trim();
+        if (!id) continue;
+        seen.add(cueGroupKey(id));
+      }
+      return [...seen].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+    }
+
+    // ── Render: everything ──────────────────────────────────────────────────────
+    function renderAll() {
+      document.getElementById('meta-panel').style.display = '';
+      document.getElementById('isolate-panel').style.display = '';
+      document.getElementById('full-panel').style.display = '';
+      renderMeta();
+      renderFilters();
+      renderFull();
+      renderIsolated();
+      // Keep the visualizer consistent: drop selections for stems that no longer exist,
+      // and refresh it if that tab is currently showing.
+      const names = new Set(allStems().map(s => s.name));
+      [...selectedStems].forEach(s => { if (!names.has(s)) selectedStems.delete(s); });
+      if (document.getElementById('tab-view').style.display !== 'none') {
+        renderStemPicker(); renderTimeline();
+      }
+    }
+
+    function renderMeta() {
+      const host = document.getElementById('meta-grid');
+      host.innerHTML = '';
+      metaRows.forEach((row, ri) => {
+        const key = (row[0] || '').trim();
+        const wrap = document.createElement('label');
+        wrap.className = 'field';
+        const isVersion = key === 'CsvVersion';
+        wrap.innerHTML = `<span>${escapeHtml(key || 'meta')}</span>`;
+        const inp = document.createElement('input');
+        inp.type = 'text';
+        if (isVersion) inp.className = 'short';
+        inp.value = row[1] != null ? row[1] : '';
+        inp.addEventListener('input', () => { metaRows[ri][1] = inp.value; markDirty(); });
+        trackUndo(inp);
+        wrap.appendChild(inp);
+        host.appendChild(wrap);
+      });
+    }
+
+    // The type token = leading letters of the cue suffix (SQ201 -> SQ, VQ_L01 -> VQ).
+    function cueType(id) {
+      const { cue } = parseCueId(id);
+      const m = cue.match(/^[A-Za-z]+/);
+      return m ? m[0] : '';
+    }
+    // Apply a row tint class based on the row's CueId type (SQ → teal, VQ → orange).
+    function applyRowTypeClass(tr, row) {
+      tr.classList.remove('row-sq', 'row-vq');
+      const t = (cueType(row.cells[0]) || '').toUpperCase();
+      if (t === 'SQ') tr.classList.add('row-sq');
+      else if (t === 'VQ') tr.classList.add('row-vq');
+    }
+    // Detect row-level data issues: a non-VQ row whose StemFileName isn't in the
+    // GitHub catalogue, or a Volume outside 0–100. Used by applyRowIssueClass for
+    // a left-edge red bar so problems are scannable in long tables.
+    function rowHasIssue(row) {
+      const stemCol = header.findIndex(h => (h || '').trim() === 'StemFileName');
+      const volCol  = header.findIndex(h => (h || '').trim() === 'Volume');
+      const isVq = (cueType(row.cells[0]) || '').toUpperCase() === 'VQ';
+      if (!isVq && stemCol >= 0 && knownStems) {
+        const sn = (row.cells[stemCol] || '').trim();
+        if (sn && !knownStems.has(sn)) return true;
+      }
+      if (volCol >= 0) {
+        const raw = (row.cells[volCol] || '').trim();
+        if (raw !== '') {
+          const n = Number(raw);
+          if (!Number.isFinite(n) || n < 0 || n > 100) return true;
+        }
+      }
+      return false;
+    }
+    function applyRowIssueClass(tr, row) {
+      tr.classList.toggle('row-issue', rowHasIssue(row));
+    }
+    function applyRowClasses(tr, row) {
+      applyRowTypeClass(tr, row);
+      applyRowIssueClass(tr, row);
+    }
+
+    // Distinct prefixes (A, B, C, …) present in the data, A/B/C first then any others.
+    function uniquePrefixes() {
+      const s = new Set();
+      data.forEach(r => { const t = parseCueId(r.cells[0]).track; if (t) s.add(t); });
+      return [...s].sort((a, b) => {
+        const ra = trackRank(a), rb = trackRank(b);
+        return ra !== rb ? ra - rb : a.localeCompare(b);
+      });
+    }
+
+    // Distinct type tokens (SQ, VQ, …) present in the data — auto-extends to new ones.
+    function uniqueTypes() {
+      const s = new Set();
+      data.forEach(r => { const t = cueType(r.cells[0]); if (t) s.add(t); });
+      return [...s].sort((a, b) => a.localeCompare(b));
+    }
+
+    // Populate a <select> with a value='' first option (firstLabel) plus the values,
+    // preserving the previous selection when it still exists.
+    function populateSelect(id, values, firstLabel) {
+      const sel = document.getElementById(id);
+      const prev = sel.value;
+      sel.innerHTML = '';
+      const o0 = document.createElement('option');
+      o0.value = ''; o0.textContent = firstLabel;
+      sel.appendChild(o0);
+      for (const v of values) {
+        const o = document.createElement('option');
+        o.value = v; o.textContent = v;
+        sel.appendChild(o);
+      }
+      sel.value = [...sel.options].some(o => o.value === prev) ? prev : '';
+    }
+
+    // ── Filter dropdowns ──────────────────────────────────────────────────────
+    function renderFilters() {
+      const textFilter = (document.getElementById('cue-filter').value || '').toLowerCase();
+      const cues = uniqueCues();
+      const filtered = cues.filter(c => !textFilter || c.toLowerCase().includes(textFilter));
+      populateSelect('cue-select', filtered, `— select cue (${filtered.length}) —`);
+      // For the range end, pull "ALL" up to the top (just under the placeholder).
+      const rangeCues = cues.slice();
+      const allIdx = rangeCues.indexOf('ALL');
+      if (allIdx > 0) { rangeCues.splice(allIdx, 1); rangeCues.unshift('ALL'); }
+      populateSelect('cue-range', rangeCues, '— single cue —');
+      populateSelect('prefix-select', uniquePrefixes(), '— all —');
+      populateSelect('type-select', uniqueTypes(), '— all —');
+    }
+
+    // ── Isolated per-cue editor ──────────────────────────────────────────────────
+    function renderIsolated() {
+      const start   = document.getElementById('cue-select').value;
+      const end     = document.getElementById('cue-range').value;
+      const prefixF = document.getElementById('prefix-select').value; // '' = all
+      const typeF   = document.getElementById('type-select').value;   // '' = all
+      const search  = (document.getElementById('text-search').value || '').trim().toLowerCase();
+      const host = document.getElementById('isolate-body');
+      host.innerHTML = '';
+
+      const allGroups = uniqueCues();
+
+      // Which cue groups to consider: an explicit cue/range, or (with a text search
+      // and no cue chosen) every group so the search spans the whole CSV.
+      let groups;
+      if (start) {
+        const si = allGroups.indexOf(start);
+        if (si < 0) { host.innerHTML = '<div class="track-empty">Selected cue no longer exists.</div>'; return; }
+        const ei = end ? allGroups.indexOf(end) : -1;
+        if (ei >= 0) { const lo = Math.min(si, ei), hi = Math.max(si, ei); groups = allGroups.slice(lo, hi + 1); }
+        else groups = [start];
+      } else if (search) {
+        groups = allGroups;
+      } else {
+        host.innerHTML = '<div class="track-empty">Select a cue, or type in “Text search”, to show rows here.</div>';
+        return;
+      }
+
+      // Empty track sections + "add row" buttons only make sense for a single cue
+      // with no text search narrowing things down.
+      const editMode = !!start && groups.length === 1 && !search;
+
+      // A row passes when it satisfies every active filter (prefix / type / text).
+      const rowMatches = r =>
+        (!prefixF || parseCueId(r.cells[0]).track === prefixF) &&
+        (!typeF   || cueType(r.cells[0]) === typeF) &&
+        (!search  || r.cells.some(c => (c || '').toLowerCase().includes(search)));
+
+      let anyShown = false;
+
+      for (const g of groups) {
+        // Tracks to consider: a single prefix when filtered, else A/B/C + any extras.
+        let tracks;
+        if (prefixF) {
+          tracks = [prefixF];
+        } else {
+          const present = new Set();
+          data.forEach(r => { if (cueGroupKey(r.cells[0]) === g) present.add(parseCueId(r.cells[0]).track); });
+          const extra = [...present].filter(t => !TRACKS.includes(t) && t !== '').sort();
+          tracks = [...TRACKS, ...extra];
+        }
+
+        const sections = [];
+        for (const track of tracks) {
+          const rows = data.filter(r =>
+            cueGroupKey(r.cells[0]) === g &&
+            parseCueId(r.cells[0]).track === track &&
+            rowMatches(r)
+          );
+          if (!rows.length && !editMode) continue;
+
+          const section = document.createElement('div');
+          section.className = 'track-section';
+          const head = document.createElement('div');
+          head.className = 'track-head';
+          head.innerHTML = `<div class="track-badge">${escapeHtml(track || '?')}</div>`;
+          if (editMode) {
+            const suf = representativeSuffix(g, track, typeF);
+            const addBtn = document.createElement('button');
+            addBtn.className = 'add-track-btn';
+            addBtn.textContent = `+ Add ${track}_${suf} row`;
+            addBtn.addEventListener('click', () => addTrackRow(track, g, typeF));
+            head.appendChild(addBtn);
+          }
+          section.appendChild(head);
+          if (rows.length) {
+            section.appendChild(buildTable(rows, { showActions: true }));
+          } else {
+            const empty = document.createElement('div');
+            empty.className = 'track-empty';
+            empty.textContent = `No ${track}_${g} rows${typeF ? ` of type ${typeF}` : ''}.`;
+            section.appendChild(empty);
+          }
+          sections.push(section);
+        }
+
+        if (!sections.length) continue;   // nothing in this cue under current filters
+        anyShown = true;
+
+        const gh = document.createElement('div');
+        gh.className = 'cue-group-head';
+        const ghTitle = document.createElement('span'); ghTitle.textContent = `Cue ${g}`;
+        gh.appendChild(ghTitle);
+        const playBtn = document.createElement('button');
+        playBtn.className = 'play-cue-btn'; playBtn.dataset.cue = String(g);
+        playBtn.textContent = `▶ Play cue ${g}`;
+        playBtn.addEventListener('click', () => {
+          if (cueEngine.lastCueKey === g) cueEngine.stopAll(0);
+          else playCue(g);
+        });
+        gh.appendChild(playBtn);
+        host.appendChild(gh);
+        sections.forEach(s => host.appendChild(s));
+      }
+
+      if (!anyShown) host.innerHTML = '<div class="track-empty">No rows match the current filters.</div>';
+    }
+
+    function trackRank(t) {
+      const i = TRACKS.indexOf(t);
+      return i < 0 ? TRACKS.length : i;
+    }
+
+    function addTrackRow(track, cue, typeF) {
+      pushHistory();
+      const cells = new Array(header.length).fill('');
+      cells[0] = `${track}_${representativeSuffix(cue, track, typeF)}`;
+      const newRow = { id: ++rowSeq, cells };
+
+      // Place the row next to the cue group it belongs to (keeps the CSV readable),
+      // rather than dumping it at the bottom.
+      const groupIdx = [];
+      data.forEach((r, i) => { if (cueGroupKey(r.cells[0]) === cue) groupIdx.push(i); });
+
+      let insertAt;
+      if (!groupIdx.length) {
+        insertAt = data.length;
+      } else {
+        // Prefer right after the last row already in this track within the group.
+        let lastSame = -1;
+        for (const i of groupIdx) if (parseCueId(data[i].cells[0]).track === track) lastSame = i;
+        if (lastSame >= 0) {
+          insertAt = lastSame + 1;
+        } else {
+          // No rows for this track yet — slot in by A/B/C order inside the group.
+          const rank = trackRank(track);
+          let before = -1;
+          for (const i of groupIdx) {
+            if (trackRank(parseCueId(data[i].cells[0]).track) > rank) { before = i; break; }
+          }
+          insertAt = before >= 0 ? before : groupIdx[groupIdx.length - 1] + 1;
+        }
+      }
+      data.splice(insertAt, 0, newRow);
+      renderFull(); renderIsolated();
+    }
+
+    // ── Full table ──────────────────────────────────────────────────────────────
+    function renderFull() {
+      // colgroup
+      const cg = document.getElementById('full-colgroup');
+      cg.innerHTML = '';
+      const dragCol = document.createElement('col'); dragCol.style.width = '30px'; cg.appendChild(dragCol);
+      header.forEach((_, i) => {
+        const col = document.createElement('col');
+        col.className = 'data-col'; col.dataset.col = i; col.style.width = colWidths[i] + 'px';
+        cg.appendChild(col);
+      });
+      const actCol = document.createElement('col'); actCol.style.width = '64px'; cg.appendChild(actCol);
+
+      // thead
+      const thead = document.getElementById('full-thead');
+      thead.innerHTML = '';
+      const tr = document.createElement('tr');
+      const thDrag = document.createElement('th'); thDrag.className = 'drag-col'; tr.appendChild(thDrag);
+      header.forEach((h, i) => {
+        const th = document.createElement('th');
+        th.textContent = h;
+        const rz = document.createElement('div');
+        rz.className = 'resizer';
+        rz.addEventListener('mousedown', e => startResize(e, i));
+        th.appendChild(rz);
+        tr.appendChild(th);
+      });
+      const thAct = document.createElement('th');
+      thAct.className = 'row-actions'; thAct.textContent = '';
+      tr.appendChild(thAct);
+      thead.appendChild(tr);
+
+      // tbody
+      const tbody = document.getElementById('full-tbody');
+      tbody.innerHTML = '';
+      const filter = (document.getElementById('full-filter').value || '').toLowerCase();
+      let shown = 0;
+      data.forEach((row, idx) => {
+        if (filter && !row.cells.some(c => (c || '').toLowerCase().includes(filter))) return;
+        shown++;
+        const tr = document.createElement('tr');
+        tr.dataset.rowId = row.id;
+        applyRowClasses(tr, row);
+        // drag handle
+        const dragTd = document.createElement('td');
+        dragTd.className = 'drag-cell';
+        const grip = document.createElement('div');
+        grip.className = 'grip'; grip.textContent = '⠿'; grip.title = 'Drag to reorder';
+        grip.draggable = true;
+        grip.addEventListener('dragstart', e => {
+          draggedRowId = row.id;
+          e.dataTransfer.effectAllowed = 'move';
+          tr.classList.add('dragging');
+        });
+        grip.addEventListener('dragend', () => {
+          draggedRowId = null;
+          tr.classList.remove('dragging');
+          clearDropMarkers();
+        });
+        dragTd.appendChild(grip);
+        tr.appendChild(dragTd);
+        // drop target behaviour on the whole row
+        tr.addEventListener('dragover', e => {
+          if (draggedRowId == null || row.id === draggedRowId) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          const after = (e.clientY - tr.getBoundingClientRect().top) > tr.offsetHeight / 2;
+          clearDropMarkers();
+          tr.classList.add(after ? 'drop-after' : 'drop-before');
+        });
+        tr.addEventListener('dragleave', () => tr.classList.remove('drop-before', 'drop-after'));
+        tr.addEventListener('drop', e => {
+          if (draggedRowId == null || row.id === draggedRowId) return;
+          e.preventDefault();
+          const after = tr.classList.contains('drop-after');
+          clearDropMarkers();
+          moveRow(draggedRowId, row.id, after);
+        });
+        header.forEach((_, ci) => tr.appendChild(buildCell(row, ci)));
+        // actions
+        const td = document.createElement('td');
+        td.className = 'row-actions';
+        const btns = document.createElement('div');
+        btns.className = 'cell-btns';
+        const ins = document.createElement('button');
+        ins.className = 'mini-btn'; ins.textContent = '+'; ins.title = 'Insert row below';
+        ins.addEventListener('click', () => insertRowAfter(idx));
+        const del = document.createElement('button');
+        del.className = 'mini-btn del'; del.textContent = '✕'; del.title = 'Delete row';
+        del.addEventListener('click', () => deleteRow(row.id));
+        btns.appendChild(ins); btns.appendChild(del);
+        td.appendChild(btns);
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+      });
+      document.getElementById('row-count').textContent =
+        filter ? `${shown} / ${data.length} rows` : `${data.length} rows`;
+      applyColWidths();
+    }
+
+    // The canonical action vocabulary used in the audio CSV.
+    const KNOWN_ACTIONS = ['Loop', 'Hold', 'Stop', 'OneShot', 'StopAll'];
+
+    // ── Cell-display mode (widgets vs plain text) ─────────────────────────────
+    // 'widgets' (default) — sliders, dropdowns, VQ-action helper.
+    // 'text'    — every column is a plain editable textarea (raw CSV string editing).
+    const CELL_MODE_LS_KEY = 'csv_editor_cell_mode';
+    let cellMode = localStorage.getItem(CELL_MODE_LS_KEY) === 'text' ? 'text' : 'widgets';
+
+    function setCellMode(m) {
+      cellMode = m === 'text' ? 'text' : 'widgets';
+      localStorage.setItem(CELL_MODE_LS_KEY, cellMode);
+      updateCellModeBtn();
+      renderFull(); renderIsolated();
+    }
+    function toggleCellMode() { setCellMode(cellMode === 'widgets' ? 'text' : 'widgets'); }
+    function updateCellModeBtn() {
+      const b = document.getElementById('cell-mode-btn');
+      if (!b) return;
+      b.textContent = cellMode === 'widgets' ? 'Cells: Widgets' : 'Cells: Plain text';
+    }
+
+    // Dispatcher: pick the right widget for each column. In 'text' mode every
+    // column falls through to the plain textarea editor.
+    function buildCell(row, col) {
+      if (cellMode === 'text') return buildTextareaCell(row, col);
+      const name = (header[col] || '').trim();
+      const isVq = (cueType(row.cells[0]) || '').toUpperCase() === 'VQ';
+      if (name === 'Action') return isVq ? buildVqActionCell(row, col) : buildActionCell(row, col);
+      if (name === 'Volume') return buildVolumeCell(row, col);
+      if (name === 'StemFileName' && !isVq && knownStems) return buildStemNameCell(row, col);
+      return buildTextareaCell(row, col);
+    }
+
+    // StemFileName as a dropdown of every file the GitHub repo actually has,
+    // plus a Custom… escape hatch. Highlighted red when the value doesn't match
+    // any known file (typo, deleted stem, etc.).
+    function buildStemNameCell(row, col) {
+      const td = document.createElement('td');
+      const wrap = document.createElement('div');
+      wrap.className = 'action-cell stem-name-cell';
+      wrap.dataset.rowId = row.id; wrap.dataset.col = col;
+
+      const sel = document.createElement('select');
+      sel.className = 'stem-select';
+      sel.dataset.rowId = row.id; sel.dataset.col = col;
+      sel.appendChild(new Option('— (blank) —', ''));
+      const sorted = [...knownStems].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+      for (const s of sorted) sel.appendChild(new Option(s, s));
+      sel.appendChild(new Option('Custom…', '__custom__'));
+
+      const txt = document.createElement('input');
+      txt.type = 'text'; txt.className = 'action-custom'; txt.placeholder = 'custom filename';
+      txt.dataset.rowId = row.id; txt.dataset.col = col;
+
+      const evalMissing = (val) => val !== '' && !(knownStems && knownStems.has(val));
+
+      wrap._refresh = (v) => {
+        const val = (v == null ? '' : String(v)).trim();
+        if (val === '') { sel.value = ''; txt.style.display = 'none'; txt.value = ''; }
+        else if (knownStems && knownStems.has(val)) { sel.value = val; txt.style.display = 'none'; txt.value = ''; }
+        else { sel.value = '__custom__'; txt.style.display = ''; if (txt.value !== val) txt.value = val; }
+        wrap.classList.toggle('missing-stem', evalMissing(val));
+      };
+      wrap._refresh(row.cells[col]);
+
+      const commit = (val) => {
+        row.cells[col] = val;
+        document.querySelectorAll(`.stem-name-cell[data-row-id="${row.id}"][data-col="${col}"]`).forEach(c => {
+          if (c !== wrap) c._refresh(val);
+        });
+        wrap.classList.toggle('missing-stem', evalMissing(val));
+        document.querySelectorAll(`tr[data-row-id="${row.id}"]`).forEach(tr => applyRowIssueClass(tr, row));
+        markDirty();
+      };
+
+      sel.addEventListener('change', () => {
+        if (sel.value === '__custom__') {
+          txt.style.display = '';
+          commit(txt.value || '');
+          txt.focus();
+        } else {
+          txt.style.display = 'none';
+          commit(sel.value);
+        }
+      });
+      txt.addEventListener('input', () => commit(txt.value));
+
+      trackUndo(sel); trackUndo(txt);
+
+      wrap.appendChild(sel); wrap.appendChild(txt);
+      td.appendChild(wrap);
+      return td;
+    }
+
+    // ── VQ Action widget ────────────────────────────────────────────────────────
+    // Stored format: {WHATITDOES}[ObjectName]<FunctionDetails>, e.g. {FUNCTION}[Shadow]<Randomize>.
+    // ObjectName / FunctionDetails dropdowns auto-populate from existing VQ values
+    // across the data, plus a "+ new…" entry that opens a text prompt.
+    const VQ_ACTIONS = ['ENABLE', 'DISABLE', 'FUNCTION'];
+
+    function parseVqAction(s) {
+      const str = (s == null ? '' : String(s));
+      const m1 = str.match(/\{([^}]*)\}/);
+      const m2 = str.match(/\[([^\]]*)\]/);
+      const m3 = str.match(/<([^>]*)>/);
+      return { what: m1 ? m1[1] : '', obj: m2 ? m2[1] : '', fn: m3 ? m3[1] : '' };
+    }
+    function serializeVqAction({ what, obj, fn }) {
+      if (!what && !obj && !fn) return '';
+      return `{${what || ''}}[${obj || ''}]<${fn || ''}>`;
+    }
+    function uniqueVqValues(kind) {
+      const actionCol = header.findIndex(h => (h || '').trim() === 'Action');
+      if (actionCol < 0) return [];
+      const set = new Set();
+      for (const r of data) {
+        if ((cueType(r.cells[0]) || '').toUpperCase() !== 'VQ') continue;
+        const v = parseVqAction(r.cells[actionCol])[kind];
+        if (v) set.add(v);
+      }
+      return [...set].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    }
+
+    function buildVqActionCell(row, col) {
+      const td = document.createElement('td');
+      const wrap = document.createElement('div');
+      wrap.className = 'action-cell vq-action-cell';
+      wrap.dataset.rowId = row.id; wrap.dataset.col = col;
+
+      const whatSel = document.createElement('select');
+      whatSel.className = 'vq-what';
+      whatSel.dataset.rowId = row.id; whatSel.dataset.col = col;
+      whatSel.appendChild(new Option('— blank —', ''));
+      VQ_ACTIONS.forEach(a => whatSel.appendChild(new Option(a, a)));
+
+      const objSel = document.createElement('select');
+      objSel.className = 'vq-obj';
+      objSel.dataset.rowId = row.id; objSel.dataset.col = col;
+      objSel.title = 'ObjectName';
+
+      const fnSel = document.createElement('select');
+      fnSel.className = 'vq-fn';
+      fnSel.dataset.rowId = row.id; fnSel.dataset.col = col;
+      fnSel.title = 'FunctionDetails';
+
+      const objLabel = document.createElement('div'); objLabel.className = 'vq-label'; objLabel.textContent = 'ObjectName';
+      const fnLabel  = document.createElement('div'); fnLabel.className  = 'vq-label'; fnLabel.textContent  = 'FunctionDetails';
+
+      // Force-rebuild one of the open-set dropdowns, applying a specific value.
+      // Used by _refresh, which corresponds to a same-row mirror update.
+      const rebuildOpenSelect = (sel, kind, currentVal) => {
+        const values = uniqueVqValues(kind);
+        sel.innerHTML = '';
+        sel.appendChild(new Option('— blank —', ''));
+        for (const v of values) sel.appendChild(new Option(v, v));
+        if (currentVal && !values.includes(currentVal)) sel.appendChild(new Option(currentVal, currentVal));
+        sel.appendChild(new Option('+ new…', '__new__'));
+        sel.value = currentVal || '';
+      };
+
+      // Refresh option list against the latest data, *preserving* the current
+      // selection. This is what other VQ widgets call when a new value is added
+      // somewhere else — they get the new option without losing their state.
+      const syncOpenSelect = (sel, kind) => {
+        const cur = sel.value;
+        const values = uniqueVqValues(kind);
+        sel.innerHTML = '';
+        sel.appendChild(new Option('— blank —', ''));
+        for (const v of values) sel.appendChild(new Option(v, v));
+        if (cur && cur !== '__new__' && !values.includes(cur)) sel.appendChild(new Option(cur, cur));
+        sel.appendChild(new Option('+ new…', '__new__'));
+        sel.value = cur;
+      };
+
+      wrap._refresh = (val) => {
+        const p = parseVqAction(val);
+        whatSel.value = VQ_ACTIONS.includes(p.what) ? p.what : '';
+        rebuildOpenSelect(objSel, 'obj', p.obj);
+        rebuildOpenSelect(fnSel,  'fn',  p.fn);
+      };
+      wrap._syncOptions = () => {
+        syncOpenSelect(objSel, 'obj');
+        syncOpenSelect(fnSel,  'fn');
+      };
+      wrap._refresh(row.cells[col]);
+
+      const readSelected = (sel) => sel.value === '__new__' ? '' : sel.value;
+      const commit = () => {
+        const val = serializeVqAction({ what: whatSel.value, obj: readSelected(objSel), fn: readSelected(fnSel) });
+        row.cells[col] = val;
+        // Mirror within the same row (full table + isolated view share the model).
+        document.querySelectorAll(`.vq-action-cell[data-row-id="${row.id}"][data-col="${col}"]`).forEach(c => {
+          if (c !== wrap) c._refresh(val);
+        });
+        // Broadcast option-list refresh to every OTHER VQ widget so new
+        // ObjectName / FunctionDetails values show up everywhere immediately.
+        document.querySelectorAll('.vq-action-cell').forEach(c => {
+          if (c !== wrap && typeof c._syncOptions === 'function') c._syncOptions();
+        });
+        markDirty();
+      };
+
+      // "+ new…" opens a text prompt. Cancel reverts the select to the previously
+      // committed value; Add appends the value to the dropdown and selects it.
+      const promptForNewValue = (sel, kind) => {
+        const body = document.createElement('div');
+        const labelText = kind === 'obj' ? 'ObjectName' : 'FunctionDetails';
+        body.innerHTML = `<p>Add a new <strong>${labelText}</strong>:</p>`;
+        const inp = document.createElement('input'); inp.type = 'text';
+        body.appendChild(inp);
+        showModal({
+          title: `New ${labelText}`,
+          body,
+          confirmLabel: 'Add',
+          onConfirm: () => {
+            const v = (inp.value || '').trim();
+            if (!v) return false;          // keep modal open on empty input
+            // Make sure the option exists before selecting it.
+            if (![...sel.options].some(o => o.value === v)) {
+              const newIdx = [...sel.options].findIndex(o => o.value === '__new__');
+              const opt = new Option(v, v);
+              if (newIdx >= 0) sel.add(opt, newIdx); else sel.add(opt);
+            }
+            sel.value = v;
+            commit();
+          },
+          onCancel: () => {
+            const prev = parseVqAction(row.cells[col])[kind] || '';
+            sel.value = prev;
+          },
+        });
+      };
+
+      whatSel.addEventListener('change', commit);
+      objSel.addEventListener('change', () => {
+        if (objSel.value === '__new__') promptForNewValue(objSel, 'obj'); else commit();
+      });
+      fnSel.addEventListener('change', () => {
+        if (fnSel.value === '__new__') promptForNewValue(fnSel, 'fn'); else commit();
+      });
+
+      trackUndo(whatSel); trackUndo(objSel); trackUndo(fnSel);
+
+      wrap.appendChild(whatSel);
+      wrap.appendChild(objLabel); wrap.appendChild(objSel);
+      wrap.appendChild(fnLabel);  wrap.appendChild(fnSel);
+      td.appendChild(wrap);
+      return td;
+    }
+
+    // Plain editable textarea cell (the default for most columns).
+    function buildTextareaCell(row, col) {
+      const td = document.createElement('td');
+      const ta = document.createElement('textarea');
+      ta.value = row.cells[col] != null ? row.cells[col] : '';
+      ta.dataset.rowId = row.id;
+      ta.dataset.col = col;
+      ta.rows = 1;
+      ta.spellcheck = false;
+      ta.addEventListener('input', () => {
+        row.cells[col] = ta.value;
+        autoGrow(ta);
+        // mirror into the other view(s) without stealing focus
+        document.querySelectorAll(`textarea[data-row-id="${row.id}"][data-col="${col}"]`).forEach(t => {
+          if (t !== ta && t.value !== ta.value) { t.value = ta.value; autoGrow(t); }
+        });
+        markDirty();
+      });
+      // Editing a CueId changes which cue group a row belongs to. Refresh the
+      // dropdown + isolated view on commit (blur) so the move shows up — doing this
+      // on every keystroke would steal focus mid-edit.
+      if (col === 0) {
+        ta.addEventListener('change', () => {
+          // Re-tint live so the SQ/VQ background and issue bar follow the new CueId.
+          document.querySelectorAll(`tr[data-row-id="${row.id}"]`).forEach(tr => applyRowClasses(tr, row));
+          // A flip between SQ and VQ needs the Action widget to swap, so re-render
+          // the full table too. This happens on blur, not per keystroke.
+          renderFilters(); renderFull(); renderIsolated();
+        });
+      }
+      trackUndo(ta);
+      td.appendChild(ta);
+      requestAnimationFrame(() => autoGrow(ta));
+      return td;
+    }
+
+    // Action cell: a select for the known actions + a Custom… escape hatch.
+    function buildActionCell(row, col) {
+      const td = document.createElement('td');
+      const wrap = document.createElement('div');
+      wrap.className = 'action-cell';
+      wrap.dataset.rowId = row.id;
+      wrap.dataset.col = col;
+
+      const sel = document.createElement('select');
+      sel.className = 'action-select';
+      sel.dataset.rowId = row.id;
+      sel.dataset.col = col;
+      sel.appendChild(new Option('— (blank) —', ''));
+      KNOWN_ACTIONS.forEach(a => sel.appendChild(new Option(a, a)));
+      sel.appendChild(new Option('Custom…', '__custom__'));
+
+      const txt = document.createElement('input');
+      txt.type = 'text';
+      txt.className = 'action-custom';
+      txt.dataset.rowId = row.id;
+      txt.dataset.col = col;
+      txt.placeholder = 'custom value';
+
+      const matchKnown = v => KNOWN_ACTIONS.find(a => a.toLowerCase() === (v || '').trim().toLowerCase());
+
+      // Reflect a model value into the widget UI without dispatching events.
+      wrap._refresh = (v) => {
+        const val = (v == null ? '' : String(v)).trim();
+        if (val === '') { sel.value = ''; txt.style.display = 'none'; txt.value = ''; }
+        else {
+          const known = matchKnown(val);
+          if (known) { sel.value = known; txt.style.display = 'none'; txt.value = ''; }
+          else { sel.value = '__custom__'; txt.style.display = ''; if (txt.value !== val) txt.value = val; }
+        }
+      };
+      wrap._refresh(row.cells[col]);
+
+      const commit = (val) => {
+        row.cells[col] = val;
+        // Mirror every other action widget for this same (row,col) without
+        // overwriting the element the user is interacting with.
+        document.querySelectorAll(`.action-cell[data-row-id="${row.id}"][data-col="${col}"]`).forEach(c => {
+          if (c !== wrap) c._refresh(val);
+        });
+        markDirty();
+      };
+
+      sel.addEventListener('change', () => {
+        if (sel.value === '__custom__') {
+          txt.style.display = '';
+          // Until they type, the model value is whatever was previously in the text input.
+          commit(txt.value || '');
+          txt.focus();
+        } else {
+          txt.style.display = 'none';
+          commit(sel.value);
+        }
+      });
+      txt.addEventListener('input', () => commit(txt.value));
+
+      trackUndo(sel);
+      trackUndo(txt);
+
+      wrap.appendChild(sel);
+      wrap.appendChild(txt);
+      td.appendChild(wrap);
+      return td;
+    }
+
+    // Volume cell: 0–100 slider + numeric readout. Empty stays empty.
+    function buildVolumeCell(row, col) {
+      const td = document.createElement('td');
+      const wrap = document.createElement('div');
+      wrap.className = 'vol-cell';
+      wrap.dataset.rowId = row.id;
+      wrap.dataset.col = col;
+
+      const range = document.createElement('input');
+      range.type = 'range'; range.min = 0; range.max = 100; range.step = 1;
+      range.className = 'vol-slider';
+      range.dataset.rowId = row.id; range.dataset.col = col;
+
+      const num = document.createElement('input');
+      num.type = 'text';                       // text so empty stays empty (vs number which coerces)
+      num.className = 'vol-num';
+      num.placeholder = '—';
+      num.dataset.rowId = row.id; num.dataset.col = col;
+
+      // Reflect model state visually.
+      wrap._refresh = (v) => {
+        const raw = (v == null ? '' : String(v)).trim();
+        if (num.value !== raw) num.value = raw;
+        const n = raw === '' ? NaN : Number(raw);
+        const inRange = Number.isFinite(n) && n >= 0 && n <= 100;
+        wrap.classList.toggle('empty', raw === '');
+        wrap.classList.toggle('out-of-range', raw !== '' && !inRange);
+        // The slider always sits at a sensible spot for visual feedback.
+        range.value = inRange ? n : (Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 0);
+      };
+      wrap._refresh(row.cells[col]);
+
+      const commit = (val) => {
+        row.cells[col] = val;
+        document.querySelectorAll(`.vol-cell[data-row-id="${row.id}"][data-col="${col}"]`).forEach(c => {
+          if (c !== wrap) c._refresh(val);
+        });
+        document.querySelectorAll(`tr[data-row-id="${row.id}"]`).forEach(tr => applyRowIssueClass(tr, row));
+        markDirty();
+      };
+
+      range.addEventListener('input', () => commit(String(range.value)));
+      num.addEventListener('input', () => {
+        // Allow blank to clear the cell entirely; otherwise reflect typed digits.
+        commit(num.value);
+        wrap._refresh(num.value);                 // re-evaluate range/out-of-range classes
+      });
+
+      trackUndo(range);
+      trackUndo(num);
+
+      wrap.appendChild(range);
+      wrap.appendChild(num);
+      td.appendChild(wrap);
+      return td;
+    }
+
+    function buildTable(rows, { showActions }) {
+      const scroll = document.createElement('div');
+      scroll.className = 'table-scroll';
+      const table = document.createElement('table');
+      table.className = 'csv';
+      const cg = document.createElement('colgroup');
+      header.forEach((_, i) => {
+        const col = document.createElement('col');
+        col.className = 'data-col'; col.dataset.col = i; col.style.width = colWidths[i] + 'px';
+        cg.appendChild(col);
+      });
+      if (showActions) { const ac = document.createElement('col'); ac.style.width = '64px'; cg.appendChild(ac); }
+      table.appendChild(cg);
+
+      const thead = document.createElement('thead');
+      const htr = document.createElement('tr');
+      header.forEach((h, i) => {
+        const th = document.createElement('th');
+        th.textContent = h;
+        const rz = document.createElement('div');
+        rz.className = 'resizer';
+        rz.addEventListener('mousedown', e => startResize(e, i));
+        th.appendChild(rz);
+        htr.appendChild(th);
+      });
+      if (showActions) { const t = document.createElement('th'); t.className = 'row-actions'; htr.appendChild(t); }
+      thead.appendChild(htr);
+      table.appendChild(thead);
+
+      const tbody = document.createElement('tbody');
+      rows.forEach(row => {
+        const tr = document.createElement('tr');
+        tr.dataset.rowId = row.id;
+        applyRowClasses(tr, row);
+        header.forEach((_, ci) => tr.appendChild(buildCell(row, ci)));
+        if (showActions) {
+          const td = document.createElement('td');
+          td.className = 'row-actions';
+          const btns = document.createElement('div');
+          btns.className = 'cell-btns';
+          const del = document.createElement('button');
+          del.className = 'mini-btn del'; del.textContent = '✕'; del.title = 'Delete row';
+          del.addEventListener('click', () => deleteRow(row.id));
+          btns.appendChild(del);
+          td.appendChild(btns);
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      scroll.appendChild(table);
+      return scroll;
+    }
+
+    function autoGrow(ta) {
+      ta.style.height = 'auto';
+      ta.style.height = Math.max(30, ta.scrollHeight) + 'px';
+    }
+
+    function insertRowAfter(idx) {
+      pushHistory();
+      const cells = new Array(header.length).fill('');
+      // Prefill CueId with the same prefix as the row above, for convenience.
+      if (data[idx]) cells[0] = data[idx].cells[0] || '';
+      data.splice(idx + 1, 0, { id: ++rowSeq, cells });
+      renderFull(); renderIsolated();
+    }
+
+    function deleteRow(id) {
+      pushHistory();
+      data = data.filter(r => r.id !== id);
+      renderFull(); renderIsolated();
+    }
+
+    // ── Drag-to-reorder (full table) ─────────────────────────────────────────────
+    let draggedRowId = null;
+    function clearDropMarkers() {
+      document.querySelectorAll('tr.drop-before, tr.drop-after')
+        .forEach(t => t.classList.remove('drop-before', 'drop-after'));
+    }
+    function moveRow(draggedId, targetId, placeAfter) {
+      if (draggedId == null || draggedId === targetId) return;
+      const from = data.findIndex(r => r.id === draggedId);
+      if (from < 0 || data.findIndex(r => r.id === targetId) < 0) return;
+      pushHistory();
+      const [moved] = data.splice(from, 1);
+      let to = data.findIndex(r => r.id === targetId);   // recompute after removal
+      if (placeAfter) to += 1;
+      data.splice(to, 0, moved);
+      renderFull(); renderIsolated();
+    }
+
+    // ── Undo / Redo history ───────────────────────────────────────────────────
+    // Two stacks: `history` of pre-change snapshots; `future` of redo states.
+    // A new edit pushes to history and clears future.
+    const MAX_HISTORY = 200;
+    let history = [];
+    let future  = [];
+    let pendingSnapshot = null;   // captured on focus, committed on a real change
+
+    function snapshot() {
+      return {
+        data: data.map(r => ({ id: r.id, cells: r.cells.slice() })),
+        meta: metaRows.map(r => r.slice()),
+      };
+    }
+    function commitHistory(s) {
+      history.push(s);
+      if (history.length > MAX_HISTORY) history.shift();
+      future = [];                                 // any new edit invalidates redo
+      updateUndoRedoBtns();
+      markDirty();
+    }
+    function pushHistory() { commitHistory(snapshot()); }
+    function resetHistory() { history = []; future = []; pendingSnapshot = null; updateUndoRedoBtns(); }
+
+    function restoreSnapshot(s) {
+      data = s.data.map(r => ({ id: r.id, cells: r.cells.slice() }));
+      metaRows = s.meta.map(r => r.slice());
+      renderMeta(); renderFilters(); renderFull(); renderIsolated();
+    }
+    function undo() {
+      if (!history.length) return;
+      const cur = snapshot();
+      const s = history.pop();
+      future.push(cur);
+      restoreSnapshot(s);
+      updateUndoRedoBtns();
+      markDirty();
+      toast(`Undid change — ${history.length} more to undo, ${future.length} to redo.`, 'ok');
+    }
+    function redo() {
+      if (!future.length) return;
+      const cur = snapshot();
+      const s = future.pop();
+      history.push(cur);
+      if (history.length > MAX_HISTORY) history.shift();
+      restoreSnapshot(s);
+      updateUndoRedoBtns();
+      markDirty();
+      toast(`Redid change — ${history.length} to undo, ${future.length} more to redo.`, 'ok');
+    }
+    function updateUndoRedoBtns() {
+      const u = document.getElementById('undo-btn');
+      const r = document.getElementById('redo-btn');
+      if (u) { u.disabled = history.length === 0; u.textContent = history.length ? `↶ Undo (${history.length})` : '↶ Undo'; }
+      if (r) { r.disabled = future.length === 0;  r.textContent = future.length  ? `↷ Redo (${future.length})`  : '↷ Redo';  }
+    }
+    // Wire focus→snapshot / change→commit onto an editable field so a single
+    // edit session (focus until blur, only if the value actually changed) = one undo.
+    function trackUndo(el) {
+      el.addEventListener('focus', () => { pendingSnapshot = snapshot(); });
+      el.addEventListener('change', () => {
+        if (pendingSnapshot) { commitHistory(pendingSnapshot); pendingSnapshot = null; }
+      });
+    }
+
+    // Transient toast inside the global bar (cleared after a few seconds).
+    let toastTimer = null;
+    function toast(msg, cls = '') {
+      const el = document.getElementById('action-toast');
+      if (!el) return;
+      el.textContent = msg;
+      el.className = 'toast' + (cls ? ' ' + cls : '');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => { el.textContent = ''; el.className = 'toast'; }, 3500);
+    }
+
+    // ── Column resize ─────────────────────────────────────────────────────────
+    let resizing = null;
+    function startResize(e, col) {
+      resizing = { col, startX: e.clientX, startW: colWidths[col] };
+      document.addEventListener('mousemove', onResize);
+      document.addEventListener('mouseup', stopResize);
+      e.preventDefault();
+    }
+    function onResize(e) {
+      if (!resizing) return;
+      colWidths[resizing.col] = Math.max(40, resizing.startW + (e.clientX - resizing.startX));
+      applyColWidths();
+    }
+    function stopResize() {
+      resizing = null;
+      saveWidths();
+      document.removeEventListener('mousemove', onResize);
+      document.removeEventListener('mouseup', stopResize);
+    }
+    function applyColWidths() {
+      document.querySelectorAll('col.data-col').forEach(c => {
+        c.style.width = colWidths[+c.dataset.col] + 'px';
+      });
+    }
+    function loadWidths() {
+      try { const w = JSON.parse(localStorage.getItem(WIDTH_LS_KEY)); if (Array.isArray(w) && w.length) return w; } catch (_) {}
+      return DEFAULT_WIDTHS.slice();
+    }
+    function saveWidths() { localStorage.setItem(WIDTH_LS_KEY, JSON.stringify(colWidths)); }
+
+    // ── Import / Fetch ──────────────────────────────────────────────────────────
+    document.getElementById('import-btn').addEventListener('click', () =>
+      document.getElementById('import-file').click());
+
+    document.getElementById('import-file').addEventListener('change', e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = ev => {
+        try {
+          loadCsvText(ev.target.result, { fileDate: file.lastModified });
+          setStatus(`Loaded ${data.length} rows from ${file.name} (CsvVersion ${currentVersion()})`, 'ok');
+        } catch (err) { setStatus(`Parse failed: ${err.message}`, 'err'); }
+      };
+      reader.readAsText(file);
+      e.target.value = '';
+    });
+
+    document.getElementById('load-path-btn').addEventListener('click', async () => {
+      const path = document.getElementById('load-path').value.trim();
+      if (!path) { setStatus('Path is empty', 'err'); return; }
+      setStatus(`Fetching ${path}…`, '');
+      try {
+        const res = await fetch(path, { cache: 'no-store' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        loadCsvText(await res.text());
+        setStatus(`Loaded ${data.length} rows from ${path} (CsvVersion ${currentVersion()})`, 'ok');
+      } catch (err) {
+        setStatus(`Fetch failed: ${err.message} — use Import CSV instead (browsers block file:// fetches).`, 'err');
+      }
+    });
+
+    // ── Modal popup helper ─────────────────────────────────────────────────────
+    // Single-purpose helper used by the export confirmation and other prompts.
+    // body is a DOM element appended into the modal body; onConfirm returns a
+    // falsy value to keep the modal open (validation failure).
+    function showModal({ title, body, confirmLabel = 'OK', cancelLabel = 'Cancel', onConfirm, onCancel }) {
+      const backdrop = document.createElement('div');
+      backdrop.className = 'modal-backdrop';
+      const modal = document.createElement('div');
+      modal.className = 'modal';
+      const head = document.createElement('div'); head.className = 'modal-head'; head.textContent = title;
+      const bodyWrap = document.createElement('div'); bodyWrap.className = 'modal-body'; bodyWrap.appendChild(body);
+      const foot = document.createElement('div'); foot.className = 'modal-foot';
+      const cancel = document.createElement('button'); cancel.textContent = cancelLabel;
+      const ok = document.createElement('button'); ok.textContent = confirmLabel; ok.className = 'primary';
+      foot.appendChild(cancel); foot.appendChild(ok);
+      modal.appendChild(head); modal.appendChild(bodyWrap); modal.appendChild(foot);
+      backdrop.appendChild(modal);
+      document.body.appendChild(backdrop);
+      let confirmed = false;
+      const close = () => {
+        backdrop.remove();
+        document.removeEventListener('keydown', onKey);
+        if (!confirmed && onCancel) onCancel();
+      };
+      const onKey = (e) => {
+        if (e.key === 'Escape') close();
+        else if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') ok.click();
+      };
+      cancel.addEventListener('click', close);
+      ok.addEventListener('click', () => {
+        const keep = onConfirm && onConfirm();
+        if (keep !== false) { confirmed = true; close(); }
+      });
+      backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
+      document.addEventListener('keydown', onKey);
+      setTimeout(() => {
+        const first = bodyWrap.querySelector('input, textarea, select') || ok;
+        first.focus();
+      }, 0);
+      return { close };
+    }
+
+    // Approximate count of rows that differ from the last saved/loaded text.
+    // An edit shows as one row in both sets that no longer matches → divide by 2.
+    function changedRowCount() {
+      if (!originalText) return data.length;
+      const origRows = parseCSV(originalText);
+      const hIdx = origRows.findIndex(r => (r[0] || '').trim() === 'CueId');
+      if (hIdx < 0) return data.length;
+      const origLines = origRows.slice(hIdx + 1).map(r => r.join(''));
+      const curLines  = data.map(r => r.cells.join(''));
+      const ocnt = new Map(), ccnt = new Map();
+      origLines.forEach(l => ocnt.set(l, (ocnt.get(l) || 0) + 1));
+      curLines.forEach(l => ccnt.set(l, (ccnt.get(l) || 0) + 1));
+      let diff = 0;
+      const all = new Set([...ocnt.keys(), ...ccnt.keys()]);
+      for (const k of all) diff += Math.abs((ocnt.get(k) || 0) - (ccnt.get(k) || 0));
+      return Math.ceil(diff / 2);
+    }
+
+    // ── Export ────────────────────────────────────────────────────────────────
+    function download(filename, text) {
+      const blob = new Blob([text], { type: 'text/csv' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    function openSaveModal({ destination, handle }) {
+      if (!header.length) { setStatus('Nothing to save — load a CSV first.', 'err'); return; }
+      const changes = changedRowCount();
+      const oldVersion = currentVersion();
+      const keepBackupDefault = document.getElementById('backup-chk').checked;
+      const target = destination === 'handle'
+        ? `to <code>${escapeHtml(handle.name || 'the file you opened')}</code> in place`
+        : `to <code>audio_cues.csv</code> (downloaded)`;
+
+      const body = document.createElement('div');
+      body.innerHTML = `
+        <p>You changed <span class="strong">${changes}</span> ${changes === 1 ? 'row' : 'rows'}. Save ${target}?</p>
+        <label><input type="checkbox" id="m-keep-backup" ${keepBackupDefault ? 'checked' : ''}/>
+          <span>Keep a backup of the current file as <code>audio_cues_v${oldVersion}.csv</code> (downloads to your Downloads folder)</span></label>
+        <label><input type="checkbox" id="m-bump-csv" checked/>
+          <span>Bump <code>CsvVersion</code> from <span class="strong">${oldVersion}</span> to <span class="strong">${oldVersion + 1}</span></span></label>
+        <label><input type="checkbox" id="m-bump-stems"/>
+          <span>Bump <strong>every stem's <code>Version</code></strong> number by 1 (only rows with a numeric version)</span></label>
+      `;
+      showModal({
+        title: 'Save changes?',
+        body,
+        confirmLabel: 'Save',
+        cancelLabel: 'Cancel',
+        onConfirm: () => doExport({
+          keepBackup: body.querySelector('#m-keep-backup').checked,
+          bumpCsv:    body.querySelector('#m-bump-csv').checked,
+          bumpStems:  body.querySelector('#m-bump-stems').checked,
+          destination, handle,
+        }),
+      });
+    }
+
+    document.getElementById('export-btn').addEventListener('click',
+      () => openSaveModal({ destination: 'download' }));
+
+    // Standalone "bump versions" — mutates the in-memory CSV without writing it.
+    // Useful when you want to mark a checkpoint before continuing to edit; the
+    // autosave keeps the new numbers and the next Save/Export persists them.
+    function openBumpModal() {
+      if (!header.length) { setStatus('Load a CSV before bumping versions.', 'err'); return; }
+      const oldVersion = currentVersion();
+      const body = document.createElement('div');
+      body.innerHTML = `
+        <p>Bump version numbers in memory (Save / Export will persist them):</p>
+        <label><input type="checkbox" id="b-csv" checked/>
+          <span>Bump <code>CsvVersion</code> from <span class="strong">${oldVersion}</span> to <span class="strong">${oldVersion + 1}</span></span></label>
+        <label><input type="checkbox" id="b-stems" checked/>
+          <span>Bump every stem's <code>Version</code> by 1 (numeric cells only)</span></label>
+      `;
+      showModal({
+        title: 'Bump versions',
+        body,
+        confirmLabel: 'Bump',
+        onConfirm: () => {
+          const bumpCsv   = body.querySelector('#b-csv').checked;
+          const bumpStems = body.querySelector('#b-stems').checked;
+          if (!bumpCsv && !bumpStems) return false;
+          bumpVersionNumbers({ bumpCsv, bumpStems });
+        },
+      });
+    }
+    function bumpVersionNumbers({ bumpCsv, bumpStems }) {
+      pushHistory();
+      const oldVersion = currentVersion();
+      let newVersion = oldVersion;
+      const parts = [];
+      if (bumpCsv) {
+        let vr = metaRowFor('CsvVersion');
+        if (!vr) { vr = ['CsvVersion', '0']; metaRows.push(vr); }
+        newVersion = oldVersion + 1;
+        vr[1] = String(newVersion);
+        renderMeta();
+        parts.push(`CsvVersion → v${newVersion}`);
+      }
+      if (bumpStems) {
+        const versionCol = header.findIndex(h => (h || '').trim() === 'Version');
+        let n = 0;
+        if (versionCol >= 0) {
+          for (const r of data) {
+            const cur = (r.cells[versionCol] || '').trim();
+            const num = parseInt(cur, 10);
+            if (Number.isFinite(num) && String(num) === cur) { r.cells[versionCol] = String(num + 1); n++; }
+          }
+          renderFull(); renderIsolated();
+        }
+        parts.push(`${n} stem version${n === 1 ? '' : 's'} bumped`);
+      }
+      setStatus(`Bumped: ${parts.join(', ')}. (Not yet saved — autosave kept; use Save / Export to write to disk.)`, 'ok');
+    }
+
+    async function doExport({ keepBackup, bumpCsv, bumpStems, destination = 'download', handle = null }) {
+      const oldVersion = currentVersion();
+      const hadOriginal = originalText != null;
+
+      // The backup always goes to Downloads (we can't write to the same directory
+      // as the file handle without another picker — that's noisier than a download).
+      if (keepBackup && hadOriginal) download(`audio_cues_v${oldVersion}.csv`, originalText);
+
+      let newVersion = oldVersion;
+      if (bumpCsv) {
+        let vr = metaRowFor('CsvVersion');
+        if (!vr) { vr = ['CsvVersion', '0']; metaRows.push(vr); }
+        newVersion = oldVersion + 1;
+        vr[1] = String(newVersion);
+        renderMeta();
+      }
+      if (bumpStems) {
+        const versionCol = header.findIndex(h => (h || '').trim() === 'Version');
+        if (versionCol >= 0) {
+          pushHistory();
+          data.forEach(r => {
+            const cur = (r.cells[versionCol] || '').trim();
+            const n = parseInt(cur, 10);
+            if (Number.isFinite(n) && String(n) === cur) r.cells[versionCol] = String(n + 1);
+          });
+          renderFull(); renderIsolated();
+        }
+      }
+
+      const rows = [...metaRows.map(r => r.slice()), header.slice(), ...data.map(r => r.cells.slice())];
+      const text = serializeCSV(rows);
+
+      let savedToLabel;
+      if (destination === 'handle' && handle) {
+        try {
+          const writable = await handle.createWritable();
+          await writable.write(text);
+          await writable.close();
+          savedToLabel = `Saved to ${handle.name}`;
+        } catch (err) {
+          setStatus(`Save failed: ${err.message}`, 'err');
+          return;
+        }
+      } else {
+        setTimeout(() => download('audio_cues.csv', text), keepBackup && hadOriginal ? 250 : 0);
+        savedToLabel = 'Exported audio_cues.csv';
+      }
+
+      originalText = text;
+      loadedVersion = newVersion;
+      clearAutosave();
+
+      const bits = [];
+      if (bumpCsv) bits.push(`CsvVersion → v${newVersion}`);
+      if (bumpStems) bits.push('stem versions bumped');
+      if (keepBackup && hadOriginal) bits.push(`backup audio_cues_v${oldVersion}.csv`);
+      setStatus(`${savedToLabel}${bits.length ? ` — ${bits.join(', ')}` : ''}`, 'ok');
+    }
+
+    // ── File System Access API (Chrome/Edge): Open and Save the SAME file ─────
+    const HAS_FSACCESS = typeof window.showOpenFilePicker === 'function';
+    let currentFileHandle = null;        // FileSystemFileHandle once opened
+    const HANDLE_DB_NAME = 'csv_editor_handles';
+    const HANDLE_DB_KEY  = 'csv';
+
+    function openHandleDB() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(HANDLE_DB_NAME, 1);
+        req.onupgradeneeded = () => req.result.createObjectStore('h');
+        req.onsuccess = () => resolve(req.result);
+        req.onerror   = () => reject(req.error);
+      });
+    }
+    async function storeHandle(handle) {
+      try {
+        const db = await openHandleDB();
+        await new Promise((res, rej) => {
+          const tx = db.transaction('h', 'readwrite');
+          tx.objectStore('h').put(handle, HANDLE_DB_KEY);
+          tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+        });
+      } catch (_) { /* private mode / no IDB — skip persistence */ }
+    }
+    async function loadStoredHandle() {
+      try {
+        const db = await openHandleDB();
+        return await new Promise((resolve) => {
+          const tx = db.transaction('h', 'readonly');
+          const req = tx.objectStore('h').get(HANDLE_DB_KEY);
+          req.onsuccess = () => resolve(req.result || null);
+          req.onerror   = () => resolve(null);
+        });
+      } catch (_) { return null; }
+    }
+    async function ensureHandlePermission(handle, mode = 'readwrite') {
+      try {
+        if (await handle.queryPermission({ mode }) === 'granted') return true;
+        return (await handle.requestPermission({ mode })) === 'granted';
+      } catch (_) { return false; }
+    }
+
+    function updateFileSystemButtons() {
+      const open = document.getElementById('open-btn');
+      const save = document.getElementById('save-btn');
+      open.style.display = HAS_FSACCESS ? '' : 'none';
+      save.style.display = HAS_FSACCESS && currentFileHandle ? '' : 'none';
+      if (currentFileHandle) save.textContent = `Save to ${currentFileHandle.name}`;
+    }
+
+    async function openFromDisk() {
+      if (!HAS_FSACCESS) { document.getElementById('import-file').click(); return; }
+      try {
+        const [handle] = await window.showOpenFilePicker({
+          types: [{ description: 'CSV files', accept: { 'text/csv': ['.csv'] } }],
+          excludeAcceptAllOption: false,
+        });
+        const file = await handle.getFile();
+        const text = await file.text();
+        currentFileHandle = handle;
+        await storeHandle(handle);
+        loadCsvText(text, { fileDate: file.lastModified });
+        setStatus(`Opened ${handle.name} — Save writes back to this file in place.`, 'ok');
+        updateFileSystemButtons();
+        hideReopenButton();
+      } catch (err) {
+        if (err && err.name !== 'AbortError') setStatus(`Open failed: ${err.message}`, 'err');
+      }
+    }
+
+    async function saveToDisk() {
+      if (!HAS_FSACCESS) { openSaveModal({ destination: 'download' }); return; }
+      if (!currentFileHandle) {
+        // No file is open yet — ask the user to pick one to save into.
+        try {
+          const handle = await window.showSaveFilePicker({
+            suggestedName: 'audio_cues.csv',
+            types: [{ description: 'CSV files', accept: { 'text/csv': ['.csv'] } }],
+          });
+          currentFileHandle = handle;
+          await storeHandle(handle);
+          updateFileSystemButtons();
+        } catch (err) {
+          if (err && err.name !== 'AbortError') setStatus(`Save failed: ${err.message}`, 'err');
+          return;
+        }
+      }
+      const ok = await ensureHandlePermission(currentFileHandle, 'readwrite');
+      if (!ok) { setStatus('Permission to write to the file was denied.', 'err'); return; }
+      openSaveModal({ destination: 'handle', handle: currentFileHandle });
+    }
+
+    function hideReopenButton() {
+      const btn = document.getElementById('reopen-btn');
+      if (btn) btn.style.display = 'none';
+    }
+
+    // On startup, see if there's a remembered handle from a previous session.
+    // If permission was already granted, auto-open it; otherwise offer a single-
+    // click "Re-open <name>" button (FSAccess requires a user gesture to re-grant).
+    async function restoreLastFile() {
+      if (!HAS_FSACCESS) return;
+      const handle = await loadStoredHandle();
+      if (!handle) return;
+      try {
+        const perm = await handle.queryPermission({ mode: 'readwrite' });
+        if (perm === 'granted') {
+          const file = await handle.getFile();
+          const text = await file.text();
+          currentFileHandle = handle;
+          loadCsvText(text, { fileDate: file.lastModified });
+          setStatus(`Re-opened ${handle.name} from last session.`, 'ok');
+          updateFileSystemButtons();
+        } else {
+          const btn = document.getElementById('reopen-btn');
+          if (!btn) return;
+          btn.textContent = `Re-open ${handle.name}`;
+          btn.style.display = '';
+          btn.onclick = async () => {
+            const granted = await ensureHandlePermission(handle, 'readwrite');
+            if (!granted) { setStatus('Permission denied.', 'err'); return; }
+            const file = await handle.getFile();
+            const text = await file.text();
+            currentFileHandle = handle;
+            loadCsvText(text, { fileDate: file.lastModified });
+            setStatus(`Opened ${handle.name}.`, 'ok');
+            updateFileSystemButtons();
+            hideReopenButton();
+          };
+        }
+      } catch (_) { /* handle invalid or revoked — ignore */ }
+    }
+
+    // ── Visualize stems (view-only timeline) ─────────────────────────────────────
+    const selectedStems = new Set();
+
+    // ── Stem audio preview ──────────────────────────────────────────────────────
+    const STEM_BASE_LS_KEY = 'csv_editor_stem_base';
+    const STEM_EXTS = ['wav', 'mp3'];   // tried in order
+    let previewAudio = null;
+    let playingStem = null;
+
+    // ── Known-stems catalogue (fetched from GitHub) ────────────────────────────
+    // Powers the StemFileName dropdown and the missing-file highlighting.
+    const STEMS_LS_KEY = 'csv_editor_stems_list';
+    const STEMS_AGE_LIMIT_MS = 24 * 3600 * 1000;
+    let knownStems = null;            // Set<string> of stem filenames without extension
+    let stemListFetchedAt = null;
+
+    // Map a raw.githubusercontent.com URL → {owner, repo, branch, dir} so the
+    // editor can derive the matching GitHub API tree-listing URL.
+    function parseStemBase(url) {
+      const m = String(url || '').match(/^https:\/\/raw\.githubusercontent\.com\/([^/]+)\/([^/]+)\/([^/]+)\/(.+)$/);
+      if (!m) return null;
+      return { owner: m[1], repo: m[2], branch: m[3], dir: m[4].replace(/\/+$/, '') };
+    }
+    function setStemSpinner(on) {
+      const s = document.getElementById('stem-spinner');
+      if (s) s.style.display = on ? '' : 'none';
+    }
+    function ageLabel(ts) {
+      if (!ts) return '';
+      const mins = Math.floor((Date.now() - ts) / 60000);
+      if (mins < 1) return 'just now';
+      if (mins < 60) return `${mins}m ago`;
+      const hrs = Math.floor(mins / 60);
+      if (hrs < 24) return `${hrs}h ago`;
+      return `${Math.floor(hrs / 24)}d ago`;
+    }
+    function updateStemListBtn() {
+      const lbl = document.getElementById('stem-list-label');
+      if (!lbl) return;
+      lbl.textContent = knownStems
+        ? `Refresh stem list (${knownStems.size} known · ${ageLabel(stemListFetchedAt)})`
+        : 'Load stem list';
+    }
+    function loadStemListFromCache() {
+      try {
+        const j = JSON.parse(localStorage.getItem(STEMS_LS_KEY));
+        if (j && Array.isArray(j.names)) {
+          knownStems = new Set(j.names);
+          stemListFetchedAt = j.at || null;
+          return true;
+        }
+      } catch (_) {}
+      return false;
+    }
+    async function fetchStemList() {
+      const base = parseStemBase(stemBaseUrl());
+      if (!base) {
+        setStatus("Can't list stems — Audio base URL isn't a raw.githubusercontent.com address.", 'err');
+        return null;
+      }
+      setStemSpinner(true);
+      try {
+        const url = `https://api.github.com/repos/${base.owner}/${base.repo}/git/trees/${base.branch}?recursive=1`;
+        const res = await fetch(url, { cache: 'no-store' });
+        if (!res.ok) throw new Error(`GitHub API HTTP ${res.status}`);
+        const json = await res.json();
+        const names = new Set();
+        const dirPrefix = base.dir + '/';
+        for (const e of (json.tree || [])) {
+          if (e.type !== 'blob') continue;
+          const p = e.path || '';
+          if (!p.startsWith(dirPrefix)) continue;
+          const rel = p.slice(dirPrefix.length);
+          const m = rel.match(/^([^/]+)\.(wav|mp3)$/i);
+          if (m) names.add(m[1]);
+        }
+        knownStems = names;
+        stemListFetchedAt = Date.now();
+        try { localStorage.setItem(STEMS_LS_KEY, JSON.stringify({ names: [...names], at: stemListFetchedAt })); } catch (_) {}
+        setStatus(`Found ${names.size} stem files in ${base.owner}/${base.repo}/${base.dir}.`, 'ok');
+        refreshAfterStemListChange();
+        return names;
+      } catch (err) {
+        setStatus(`Stem list failed: ${err.message}`, 'err');
+        return null;
+      } finally {
+        setStemSpinner(false);
+        updateStemListBtn();
+      }
+    }
+    // Cache-first, refresh-if-stale; force=true skips the cache check.
+    async function ensureStems(force = false) {
+      if (!force) {
+        if (!knownStems) loadStemListFromCache();
+        if (knownStems && stemListFetchedAt && (Date.now() - stemListFetchedAt) < STEMS_AGE_LIMIT_MS) {
+          updateStemListBtn();
+          return knownStems;
+        }
+      }
+      return await fetchStemList();
+    }
+    // Re-render everything that depends on the known-stems set.
+    function refreshAfterStemListChange() {
+      if (header.length) { renderFull(); renderIsolated(); }
+      const viewTab = document.getElementById('tab-view');
+      if (viewTab && viewTab.style.display !== 'none') renderStemPicker();
+    }
+
+    function stemBaseUrl() {
+      const el = document.getElementById('stem-base-url');
+      return ((el && el.value) || '').trim().replace(/\/+$/, '');
+    }
+    function stopPreview() {
+      if (previewAudio) { previewAudio.pause(); previewAudio.src = ''; previewAudio = null; }
+      playingStem = null;
+      updatePlayButtons();
+    }
+    function playStem(name) {
+      if (playingStem === name) { stopPreview(); return; }
+      stopPreview();
+      const base = stemBaseUrl();
+      if (!base) { setStatus('Set an Audio base URL first.', 'err'); return; }
+      const audio = new Audio();
+      previewAudio = audio;
+      playingStem = name;
+      updatePlayButtons();
+      let i = 0;
+      const tryNext = () => {
+        if (previewAudio !== audio) return;            // superseded by another click
+        if (i >= STEM_EXTS.length) {
+          setStatus(`Couldn't load ${name} (.${STEM_EXTS.join('/.')}) from base URL.`, 'err');
+          stopPreview();
+          return;
+        }
+        audio.src = `${base}/${encodeURIComponent(name)}.${STEM_EXTS[i++]}`;
+        audio.play().catch(() => { /* 'error' event drives the fallback */ });
+      };
+      audio.addEventListener('error', () => { if (previewAudio === audio) tryNext(); });
+      audio.addEventListener('ended', () => { if (previewAudio === audio) stopPreview(); });
+      audio.addEventListener('playing', () => {
+        if (previewAudio === audio) setStatus(`▶ ${audio.src.split('/').pop()}`, 'ok');
+      });
+      tryNext();
+    }
+    function updatePlayButtons() {
+      document.querySelectorAll('.play-btn').forEach(b => {
+        const on = b.dataset.stem === playingStem;
+        b.classList.toggle('playing', on);
+        b.textContent = on ? '◼' : '▶';
+        b.title = on ? 'Stop' : 'Play';
+      });
+    }
+
+    // ── Cue playback engine ──────────────────────────────────────────────────────
+    // Plays every stem in a cue concurrently with action-aware semantics:
+    //   Loop     → starts the file looping; fades volume over Speed seconds.
+    //   Hold     → if already playing, just fades to the new vol; else starts it.
+    //   OneShot  → fires a fresh independent playback at the row's vol.
+    //   Stop     → fades the file to zero over Speed seconds, then pauses it.
+    //   StopAll  → fades every active file to zero.
+    // Tracks which cue last fired so its button can show a "playing" state until
+    // another cue runs or the global Stop is hit.
+    const cueEngine = {
+      audios: new Map(),        // stem → { audio, currentVol, fadeTimer, src }
+      lastCueKey: null,
+
+      ensureEntry(stem) {
+        let e = this.audios.get(stem);
+        if (e) return e;
+        const audio = new Audio();
+        audio.volume = 0;
+        audio.preload = 'auto';
+        e = { audio, currentVol: 0, fadeTimer: null, src: null, loaded: false };
+        this.audios.set(stem, e);
+        return e;
+      },
+
+      async loadIfNeeded(entry, stem) {
+        if (entry.loaded) return true;
+        const base = stemBaseUrl();
+        for (const ext of STEM_EXTS) {
+          const url = `${base}/${encodeURIComponent(stem)}.${ext}`;
+          entry.audio.src = url;
+          const ok = await new Promise((resolve) => {
+            const cleanup = () => {
+              entry.audio.removeEventListener('canplay', onLoad);
+              entry.audio.removeEventListener('error', onErr);
+            };
+            const onLoad = () => { cleanup(); resolve(true); };
+            const onErr  = () => { cleanup(); resolve(false); };
+            entry.audio.addEventListener('canplay', onLoad, { once: true });
+            entry.audio.addEventListener('error',   onErr,  { once: true });
+          });
+          if (ok) { entry.loaded = true; entry.src = url; return true; }
+        }
+        return false;
+      },
+
+      fadeTo(entry, target, seconds) {
+        clearInterval(entry.fadeTimer);
+        const start = entry.currentVol;
+        const end = Math.max(0, Math.min(1, target));
+        const dur = Math.max(0, seconds) * 1000;
+        if (dur === 0) {
+          entry.currentVol = end; entry.audio.volume = end;
+          if (end === 0) entry.audio.pause();
+          return;
+        }
+        const t0 = performance.now();
+        entry.fadeTimer = setInterval(() => {
+          const t = Math.min(1, (performance.now() - t0) / dur);
+          const v = start + (end - start) * t;
+          entry.currentVol = v;
+          entry.audio.volume = v;
+          if (t >= 1) {
+            clearInterval(entry.fadeTimer); entry.fadeTimer = null;
+            if (end === 0) entry.audio.pause();
+          }
+        }, 30);
+      },
+
+      async play({ stem, action, vol, speed }) {
+        if (!stem) return;
+        const entry = this.ensureEntry(stem);
+        const targetV = (vol == null ? 100 : Number(vol)) / 100;
+        const fade = Number.isFinite(speed) ? Number(speed) : 0;
+        const act = (action || '').toLowerCase();
+
+        if (act === 'oneshot') {
+          // Fire a one-off clip without disturbing any existing loop on this stem.
+          let src = entry.src;
+          if (!src) {
+            if (!(await this.loadIfNeeded(entry, stem))) return;
+            src = entry.src;
+          }
+          const shot = new Audio(src);
+          shot.volume = Math.max(0, Math.min(1, targetV));
+          shot.play().catch(() => {});
+          return;
+        }
+
+        if (act === 'stop') { this.fadeTo(entry, 0, fade); return; }
+        if (act === 'stopall') { this.stopAll(fade); return; }
+
+        // Loop or Hold (or blank) — make sure it's playing, then ramp to volume.
+        if (!entry.loaded) { if (!(await this.loadIfNeeded(entry, stem))) return; }
+        if (act === 'loop') entry.audio.loop = true;
+        if (entry.audio.paused) { entry.audio.currentTime = 0; entry.audio.play().catch(() => {}); }
+        this.fadeTo(entry, targetV, fade);
+      },
+
+      stopAll(seconds = 0) {
+        for (const e of this.audios.values()) this.fadeTo(e, 0, seconds);
+        this.lastCueKey = null;
+        updateCueButtons();
+      },
+    };
+
+    // ── Pick by cue (Visualize tab) ─────────────────────────────────────────────
+    // Three lists (A/B/C) of cues that have audio rows in that track. Clicking
+    // a cue adds every associated stem to the current selection.
+    function renderCuePicker() {
+      const host = document.getElementById('cue-pick-panel');
+      if (!host) return;
+      host.innerHTML = '';
+      const ci = stemCols();
+      const tracks = ['A', 'B', 'C'];
+      let any = false;
+      for (const track of tracks) {
+        const stemsByGroup = new Map();
+        for (const r of data) {
+          if (parseCueId(r.cells[ci.cue]).track !== track) continue;
+          const sn = (r.cells[ci.stem] || '').trim();
+          if (!sn) continue;
+          const g = cueGroupKey(r.cells[ci.cue]);
+          let set = stemsByGroup.get(g);
+          if (!set) { set = new Set(); stemsByGroup.set(g, set); }
+          set.add(sn);
+        }
+        const col = document.createElement('div');
+        col.className = 'cue-pick-track';
+        const title = document.createElement('h5');
+        title.textContent = `${track} (${stemsByGroup.size})`;
+        col.appendChild(title);
+        const list = document.createElement('div');
+        list.className = 'cue-pick-list';
+        if (stemsByGroup.size === 0) {
+          const empty = document.createElement('div'); empty.className = 'cue-pick-empty';
+          empty.textContent = 'no cues';
+          col.appendChild(empty);
+        } else {
+          any = true;
+          const sortedKeys = [...stemsByGroup.keys()]
+            .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+          for (const g of sortedKeys) {
+            const stems = stemsByGroup.get(g);
+            const btn = document.createElement('button');
+            btn.className = 'cue-pick-btn';
+            btn.textContent = `${g} (${stems.size})`;
+            btn.dataset.tip = `${track}_${g}\n${[...stems].join('\n')}`;
+            btn.addEventListener('click', () => {
+              for (const s of stems) selectedStems.add(s);
+              renderStemPicker(); renderTimeline();
+              setStatus(`Added ${stems.size} stem${stems.size === 1 ? '' : 's'} from ${track}_${g} to the selection.`, 'ok');
+            });
+            list.appendChild(btn);
+          }
+          col.appendChild(list);
+        }
+        host.appendChild(col);
+      }
+      if (!any) {
+        host.innerHTML = '<div class="cue-pick-empty">No A/B/C cues with audio stems found.</div>';
+      }
+    }
+
+    // ── Add cue (timeline) ──────────────────────────────────────────────────────
+    // Valid cue ids look like A_SQ201, B_VQ_L01, A_SQ601.5, STOP_ALL.
+    // The exact rule we enforce: letters, an underscore, then more letters,
+    // then any mix of letters / digits / underscores / dots.
+    function isValidCueId(s) {
+      return /^[A-Za-z]+_[A-Za-z][A-Za-z0-9_.]*$/.test((s || '').trim());
+    }
+
+    function findInsertionIndexForGroup(newGroup) {
+      // Insert after the last existing row whose cueGroupKey sorts <= newGroup
+      // (natural sort). Keeps the new cue near its neighbours in the CSV.
+      const cmp = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+      let bestIdx = -1;
+      for (let i = 0; i < data.length; i++) {
+        const g = cueGroupKey(data[i].cells[0]);
+        if (cmp(g, newGroup) <= 0) bestIdx = i;
+      }
+      return bestIdx + 1;
+    }
+
+    function addCueWithStems(cueName, stems) {
+      if (!stems.length) {
+        setStatus('No stems selected — pick some stems first.', 'err');
+        return;
+      }
+      pushHistory();
+      const ci = stemCols();
+      const groupKey = cueGroupKey(cueName);
+      const insertAt = findInsertionIndexForGroup(groupKey);
+      const newRows = stems.map(s => {
+        const cells = new Array(header.length).fill('');
+        cells[ci.cue]  = cueName;
+        cells[ci.stem] = s;
+        return { id: ++rowSeq, cells };
+      });
+      data.splice(insertAt, 0, ...newRows);
+      renderFilters(); renderFull(); renderIsolated(); renderTimeline(); renderCuePicker();
+      setStatus(`Added cue ${cueName} with ${stems.length} stem row${stems.length === 1 ? '' : 's'}.`, 'ok');
+    }
+
+    function openAddCueModal() {
+      if (!header.length) { setStatus('Load a CSV first.', 'err'); return; }
+      if (!selectedStems.size) {
+        setStatus('Pick some stems first — the new cue will reference them.', 'err');
+        return;
+      }
+      const body = document.createElement('div');
+      const sampleStems = [...selectedStems].slice(0, 5).map(s => escapeHtml(s)).join(', ');
+      const more = selectedStems.size > 5 ? `, +${selectedStems.size - 5} more` : '';
+      body.innerHTML = `
+        <p>One row per selected stem (<span class="strong">${selectedStems.size}</span>) will be added under this cue:</p>
+        <p style="font-family:var(--mono);font-size:0.78rem;color:var(--muted)">${sampleStems}${more}</p>
+        <p>Enter the new cue name (e.g. <code>A_SQ201</code>, <code>B_SQ201.4</code>, <code>B_VQ_L01</code>):</p>
+      `;
+      const input = document.createElement('input');
+      input.type = 'text'; input.placeholder = 'e.g. A_SQ211';
+      body.appendChild(input);
+      showModal({
+        title: 'Add cue',
+        body,
+        confirmLabel: 'Add',
+        onConfirm: () => {
+          const name = (input.value || '').trim();
+          if (!name) return false;
+          if (isValidCueId(name)) {
+            addCueWithStems(name, [...selectedStems]);
+            return true;
+          }
+          // Defer the warn modal so the first modal can close cleanly first.
+          setTimeout(() => confirmUnusualCue(name), 50);
+          return true;
+        },
+      });
+    }
+    function confirmUnusualCue(name) {
+      const warn = document.createElement('div');
+      warn.innerHTML = `
+        <p><code>${escapeHtml(name)}</code> doesn't look like a typical cue ID
+           (expected something like <code>A_SQ201</code> or <code>B_VQ_L01</code>).</p>
+        <p>Use it anyway?</p>
+      `;
+      showModal({
+        title: 'Unusual cue name',
+        body: warn,
+        confirmLabel: 'Use anyway',
+        cancelLabel: 'No, let me edit',
+        onConfirm: () => addCueWithStems(name, [...selectedStems]),
+      });
+    }
+
+    async function playCue(cueKey) {
+      const ci = stemCols();   // already resolves cue/notes/stem/action/vol/speed by header name
+      const rows = data.filter(r =>
+        cueGroupKey(r.cells[ci.cue]) === cueKey &&
+        (cueType(r.cells[ci.cue]) || '').toUpperCase() !== 'VQ' &&
+        (r.cells[ci.stem] || '').trim()
+      );
+      if (!rows.length) { setStatus(`Cue ${cueKey} has no audio stems to play.`, 'err'); return; }
+      cueEngine.lastCueKey = cueKey;
+      updateCueButtons();
+      for (const r of rows) {
+        cueEngine.play({
+          stem:   (r.cells[ci.stem]   || '').trim(),
+          action: (r.cells[ci.action] || '').trim(),
+          vol:    (r.cells[ci.vol]    || '').trim() === '' ? null : Number(r.cells[ci.vol]),
+          speed:  Number((r.cells[ci.speed] || '').trim()),
+        });
+      }
+      setStatus(`Playing cue ${cueKey} (${rows.length} stems).`, 'ok');
+    }
+
+    // ── Inline cell editor (click an event cell in the timeline) ───────────────
+    // A floating popover (anchored to the clicked td) lets the user change the
+    // row's Action, Volume, Speed and Notes — or delete the row. Lives in
+    // document.body so timeline re-renders don't tear it down mid-edit.
+    function closeCellEditor() {
+      const ex = document.getElementById('cell-editor');
+      if (!ex) return;
+      if (ex._outsideHandler) document.removeEventListener('mousedown', ex._outsideHandler);
+      if (ex._escHandler) document.removeEventListener('keydown', ex._escHandler);
+      if (ex._dirty) { renderFull(); renderIsolated(); }
+      ex.remove();
+    }
+
+    function positionPopover(pop, anchor) {
+      pop.style.visibility = 'hidden';
+      const r = anchor.getBoundingClientRect();
+      const pr = pop.getBoundingClientRect();
+      let x = r.left;
+      let y = r.bottom + 6;
+      if (x + pr.width > window.innerWidth  - 8) x = window.innerWidth  - pr.width  - 8;
+      if (y + pr.height > window.innerHeight - 8) y = r.top - pr.height - 6;
+      if (x < 8) x = 8;
+      if (y < 8) y = 8;
+      pop.style.left = x + 'px';
+      pop.style.top  = y + 'px';
+      pop.style.visibility = '';
+    }
+
+    function showCellEditor(td, row) {
+      closeCellEditor();
+      const ci = stemCols();
+      const stem = (row.cells[ci.stem] || '').trim();
+      const cue  = (row.cells[ci.cue]  || '').trim();
+
+      const pop = document.createElement('div');
+      pop.id = 'cell-editor';
+      pop.className = 'cell-editor';
+      let historyPushed = false;
+      const pushOnce = () => { if (!historyPushed) { pushHistory(); historyPushed = true; } };
+
+      // Header.
+      const head = document.createElement('div');
+      head.className = 'ce-head';
+      head.textContent = `${cue}  ·  ${stem || '(no stem)'}`;
+      pop.appendChild(head);
+
+      // Action (select + Custom… text input).
+      const actLabel = document.createElement('label');
+      actLabel.appendChild(Object.assign(document.createElement('span'), { textContent: 'Action' }));
+      const actWrap = document.createElement('div');
+      actWrap.style.display = 'flex'; actWrap.style.gap = '4px'; actWrap.style.flex = '1';
+      const actSel = document.createElement('select');
+      actSel.appendChild(new Option('— (blank) —', ''));
+      KNOWN_ACTIONS.forEach(a => actSel.appendChild(new Option(a, a)));
+      actSel.appendChild(new Option('Custom…', '__custom__'));
+      const actTxt = document.createElement('input');
+      actTxt.type = 'text'; actTxt.placeholder = 'custom';
+      const curAct = (row.cells[ci.action] || '').trim();
+      const known = KNOWN_ACTIONS.find(a => a.toLowerCase() === curAct.toLowerCase());
+      if (!curAct) { actSel.value = ''; actTxt.style.display = 'none'; }
+      else if (known) { actSel.value = known; actTxt.style.display = 'none'; }
+      else { actSel.value = '__custom__'; actTxt.value = curAct; }
+      actSel.addEventListener('change', () => {
+        if (actSel.value === '__custom__') {
+          actTxt.style.display = ''; commit('action', actTxt.value); actTxt.focus();
+        } else { actTxt.style.display = 'none'; commit('action', actSel.value); }
+      });
+      actTxt.addEventListener('input', () => commit('action', actTxt.value));
+      actWrap.appendChild(actSel); actWrap.appendChild(actTxt);
+      actLabel.appendChild(actWrap);
+      pop.appendChild(actLabel);
+
+      // Volume (0–100 slider + numeric readout).
+      const volLabel = document.createElement('label');
+      volLabel.appendChild(Object.assign(document.createElement('span'), { textContent: 'Volume' }));
+      const volRange = document.createElement('input');
+      volRange.type = 'range'; volRange.min = 0; volRange.max = 100; volRange.step = 1;
+      const volNum = document.createElement('span'); volNum.className = 'ce-vol-num';
+      const curVol = (row.cells[ci.vol] || '').trim();
+      const curVolNum = curVol === '' ? 0 : (parseInt(curVol, 10) || 0);
+      volRange.value = curVolNum;
+      volNum.textContent = curVol || '—';
+      volRange.addEventListener('input', () => {
+        volNum.textContent = String(volRange.value);
+        commit('vol', String(volRange.value));
+      });
+      volLabel.appendChild(volRange); volLabel.appendChild(volNum);
+      pop.appendChild(volLabel);
+
+      // Speed (seconds, free text — supports decimals).
+      const speedLabel = document.createElement('label');
+      speedLabel.appendChild(Object.assign(document.createElement('span'), { textContent: 'Speed (s)' }));
+      const speedInp = document.createElement('input');
+      speedInp.type = 'text'; speedInp.value = (row.cells[ci.speed] || '').trim();
+      speedInp.addEventListener('input', () => commit('speed', speedInp.value));
+      speedLabel.appendChild(speedInp);
+      pop.appendChild(speedLabel);
+
+      // Notes.
+      const notesLabel = document.createElement('label');
+      notesLabel.style.alignItems = 'flex-start';
+      notesLabel.appendChild(Object.assign(document.createElement('span'), { textContent: 'Notes' }));
+      const notesTxt = document.createElement('textarea');
+      notesTxt.rows = 2; notesTxt.value = (row.cells[ci.notes] || '').trim();
+      notesTxt.addEventListener('input', () => commit('notes', notesTxt.value));
+      notesLabel.appendChild(notesTxt);
+      pop.appendChild(notesLabel);
+
+      // Footer.
+      const foot = document.createElement('div'); foot.className = 'ce-foot';
+      const del  = document.createElement('button'); del.className = 'danger'; del.textContent = '✕ Delete row';
+      del.addEventListener('click', () => {
+        if (!confirm(`Delete the row for ${cue} / ${stem || '(no stem)'}?`)) return;
+        closeCellEditor();
+        deleteRow(row.id);
+      });
+      const done = document.createElement('button'); done.className = 'primary'; done.textContent = 'Done';
+      done.addEventListener('click', closeCellEditor);
+      foot.appendChild(del); foot.appendChild(done);
+      pop.appendChild(foot);
+
+      document.body.appendChild(pop);
+      positionPopover(pop, td);
+
+      function commit(field, val) {
+        pushOnce();
+        if (field === 'action') row.cells[ci.action] = val;
+        else if (field === 'vol')   row.cells[ci.vol]   = val;
+        else if (field === 'speed') row.cells[ci.speed] = val;
+        else if (field === 'notes') row.cells[ci.notes] = val;
+        markDirty();
+        pop._dirty = true;
+        renderTimeline();
+      }
+
+      // Outside-click / Escape dismissal.
+      setTimeout(() => {
+        const outside = (e) => { if (!pop.contains(e.target)) closeCellEditor(); };
+        const esc = (e) => { if (e.key === 'Escape') closeCellEditor(); };
+        document.addEventListener('mousedown', outside);
+        document.addEventListener('keydown', esc);
+        pop._outsideHandler = outside;
+        pop._escHandler = esc;
+      }, 0);
+    }
+
+    function updateCueButtons() {
+      const cur = cueEngine.lastCueKey;
+      document.querySelectorAll('.play-cue-btn, .play-cue-mini').forEach(b => {
+        const on = b.dataset.cue === String(cur);
+        b.classList.toggle('playing', on);
+        if (b.classList.contains('play-cue-btn')) b.textContent = on ? '◼ Stop cue' : `▶ Play cue ${b.dataset.cue}`;
+        else b.textContent = on ? '◼' : '▶';
+      });
+    }
+
+    function colIndex(name, fallback) {
+      const i = header.indexOf(name);
+      return i >= 0 ? i : fallback;
+    }
+    function stemCols() {
+      return {
+        cue:    colIndex('CueId', 0),
+        notes:  colIndex('Notes', 1),
+        stem:   colIndex('StemFileName', 2),
+        action: colIndex('Action', 4),
+        vol:    colIndex('Volume', 5),
+        speed:  colIndex('Speed', 6),
+      };
+    }
+    function stemPrefix() {
+      const el = document.getElementById('stem-prefix');
+      return el ? el.value : '';
+    }
+    // Distinct stem file names + how many cue rows reference each, optionally limited
+    // to rows whose CueId carries a given A/B/C… prefix.
+    function allStems(prefix = stemPrefix()) {
+      const ci = stemCols();
+      const counts = new Map();
+      data.forEach(r => {
+        const f = (r.cells[ci.stem] || '').trim();
+        if (!f) return;
+        if (prefix && parseCueId(r.cells[ci.cue]).track !== prefix) return;
+        counts.set(f, (counts.get(f) || 0) + 1);
+      });
+      return [...counts.keys()]
+        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+        .map(name => ({ name, times: counts.get(name) }));
+    }
+    function parseVol(v) {
+      const n = parseFloat(v);
+      return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : null;
+    }
+
+    function updateStemCount() {
+      document.getElementById('stem-count').textContent =
+        `${selectedStems.size} selected / ${allStems().length} files`;
+    }
+
+    function renderStemPicker() {
+      populateSelect('stem-prefix', uniquePrefixes(), '— all —');
+      const host = document.getElementById('stem-picker');
+      const filter = (document.getElementById('stem-filter').value || '').toLowerCase();
+      const stems = allStems().filter(s => !filter || s.name.toLowerCase().includes(filter));
+      host.innerHTML = '';
+      updateStemCount();
+      if (!stems.length) {
+        host.innerHTML = `<div class="empty">${data.length ? 'No stems match the filter.' : 'Load a CSV first (File panel above).'}</div>`;
+        return;
+      }
+      for (const s of stems) {
+        const label = document.createElement('label');
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = selectedStems.has(s.name);
+        cb.addEventListener('change', () => {
+          if (cb.checked) selectedStems.add(s.name); else selectedStems.delete(s.name);
+          updateStemCount();
+          renderTimeline();
+        });
+        const txt = document.createElement('span'); txt.textContent = s.name;
+        const times = document.createElement('span'); times.className = 'stem-times'; times.textContent = `×${s.times}`;
+        label.appendChild(cb); label.appendChild(txt); label.appendChild(times);
+        host.appendChild(label);
+      }
+    }
+
+    function renderTimeline() {
+      const host = document.getElementById('timeline');
+      host.innerHTML = '';
+      const ci = stemCols();
+      const stems = [...selectedStems].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+      if (!stems.length) {
+        host.innerHTML = '<div class="track-empty" style="padding:14px">Select one or more stems above to see their timeline.</div>';
+        return;
+      }
+
+      // Per-stem map cueId -> event, and the column order (first-seen cue order).
+      const prefix = stemPrefix();
+      const events = new Map();
+      stems.forEach(s => events.set(s, new Map()));
+      const colOrder = [];
+      const seen = new Set();
+      const cueNotes = new Map();
+      data.forEach(r => {
+        const stem = (r.cells[ci.stem] || '').trim();
+        if (!events.has(stem)) return;
+        const cue = (r.cells[ci.cue] || '').trim();
+        if (!cue) return;
+        if (prefix && parseCueId(cue).track !== prefix) return;
+        if (!seen.has(cue)) { seen.add(cue); colOrder.push(cue); }
+        const notes = (r.cells[ci.notes] || '').trim();
+        events.get(stem).set(cue, { action: (r.cells[ci.action] || '').trim(), vol: parseVol(r.cells[ci.vol]), notes, rowId: r.id });
+        if (notes && !cueNotes.has(cue)) cueNotes.set(cue, notes);
+      });
+
+      // Drop selected stems that have nothing under the active prefix.
+      const visibleStems = stems.filter(s => events.get(s).size > 0);
+      if (!colOrder.length || !visibleStems.length) {
+        host.innerHTML = `<div class="track-empty" style="padding:14px">No cue entries for the selected stems${prefix ? ` under prefix ${prefix}` : ''}.</div>`;
+        return;
+      }
+
+      const TRACK_H = 52;
+      const table = document.createElement('table');
+      table.className = 'timeline';
+
+      const thead = document.createElement('thead');
+      const htr = document.createElement('tr');
+      const corner = document.createElement('th');
+      corner.className = 'corner stem-name'; corner.textContent = 'Stem \\ Cue';
+      htr.appendChild(corner);
+      for (const cue of colOrder) {
+        const th = document.createElement('th');
+        const span = document.createElement('span'); span.className = 'cue-name'; span.textContent = cue;
+        th.appendChild(span);
+        const cueGroup = cueGroupKey(cue);
+        const mini = document.createElement('button');
+        mini.className = 'play-cue-mini';
+        mini.dataset.cue = String(cueGroup);
+        mini.textContent = '▶';
+        mini.title = `Play cue ${cueGroup}`;
+        mini.addEventListener('click', e => {
+          e.stopPropagation();
+          if (cueEngine.lastCueKey === cueGroup) cueEngine.stopAll(0);
+          else playCue(cueGroup);
+        });
+        th.appendChild(mini);
+        th.dataset.tip = cueNotes.has(cue) ? `${cue}\n${cueNotes.get(cue)}` : cue;
+        htr.appendChild(th);
+      }
+      thead.appendChild(htr);
+      table.appendChild(thead);
+
+      const tbody = document.createElement('tbody');
+      for (const stem of visibleStems) {
+        const tr = document.createElement('tr');
+        const nameTd = document.createElement('td');
+        nameTd.className = 'stem-name'; nameTd.dataset.tip = stem;
+        const wrap = document.createElement('div'); wrap.className = 'stem-name-wrap';
+        const play = document.createElement('button');
+        play.className = 'play-btn'; play.dataset.stem = stem; play.textContent = '▶'; play.title = 'Play';
+        play.addEventListener('click', e => { e.stopPropagation(); playStem(stem); });
+        const lbl = document.createElement('span'); lbl.textContent = stem;
+        wrap.appendChild(play); wrap.appendChild(lbl);
+        nameTd.appendChild(wrap);
+        tr.appendChild(nameTd);
+
+        let active = false, curVol = 0;
+        for (const cue of colOrder) {
+          const td = document.createElement('td');
+          td.className = 'slot';
+          const ev = events.get(stem).get(cue);
+          if (ev) {
+            td.dataset.cueRowId = ev.rowId;
+            const a = ev.action.toLowerCase();
+            const wasInactive = !active;
+            const vol = ev.vol == null ? (a === 'oneshot' ? 100 : curVol) : ev.vol;
+            let cls;
+            if (a === 'loop')                      { cls = 'start';   active = true;  curVol = vol; }
+            else if (a === 'oneshot')              { cls = 'oneshot'; /* momentary */ }
+            else if (a === 'stop' || a === 'stopall') { cls = 'stop'; active = false; curVol = 0;  }
+            else                                   { cls = 'hold';    active = true;  curVol = vol; } // Hold / blank
+
+            if (active || cls === 'oneshot' || cls === 'stop') td.classList.add('active');
+
+            if (cls === 'stop') {
+              const bar = document.createElement('div'); bar.className = 'bar stop'; td.appendChild(bar);
+            } else {
+              const bar = document.createElement('div'); bar.className = 'bar ' + cls;
+              bar.style.height = Math.max(2, (vol / 100) * (TRACK_H - 6)) + 'px';
+              td.appendChild(bar);
+              const vl = document.createElement('div'); vl.className = 'vlabel'; vl.textContent = String(vol);
+              td.appendChild(vl);
+              if (cls === 'start' || (cls === 'hold' && wasInactive)) {
+                const cap = document.createElement('div'); cap.className = 'cap-start'; td.appendChild(cap);
+              }
+            }
+            td.dataset.tip = `${stem}\n${cue}: ${ev.action || '—'}  vol ${ev.vol == null ? '—' : ev.vol}` + (ev.notes ? `\n${ev.notes}` : '');
+          } else if (active) {
+            td.classList.add('active');
+            const bar = document.createElement('div'); bar.className = 'bar sustain';
+            bar.style.height = Math.max(2, (curVol / 100) * (TRACK_H - 6)) + 'px';
+            td.appendChild(bar);
+            td.dataset.tip = `${stem}\n${cue}: still playing (vol ${curVol})`;
+          }
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      }
+      table.appendChild(tbody);
+      host.appendChild(table);
+      updatePlayButtons();
+      updateCueButtons();
+    }
+
+    function switchTab(name) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+      document.getElementById('tab-edit').style.display = name === 'edit' ? '' : 'none';
+      document.getElementById('tab-view').style.display = name === 'view' ? '' : 'none';
+      if (name === 'view') { renderStemPicker(); renderCuePicker(); renderTimeline(); }
+      else stopPreview();
+    }
+
+    // ── Misc listeners ──────────────────────────────────────────────────────────
+    document.getElementById('cue-select').addEventListener('change', renderIsolated);
+    document.getElementById('cue-range').addEventListener('change', renderIsolated);
+    document.getElementById('prefix-select').addEventListener('change', renderIsolated);
+    document.getElementById('type-select').addEventListener('change', renderIsolated);
+    document.getElementById('cue-filter').addEventListener('input', renderFilters);
+    document.getElementById('text-search').addEventListener('input', renderIsolated);
+    document.getElementById('full-filter').addEventListener('input', renderFull);
+    document.getElementById('add-row-btn').addEventListener('click', () => {
+      pushHistory();
+      data.push({ id: ++rowSeq, cells: new Array(header.length).fill('') });
+      renderFull();
+    });
+    document.getElementById('reset-widths-btn').addEventListener('click', () => {
+      colWidths = DEFAULT_WIDTHS.slice(0, header.length || DEFAULT_WIDTHS.length);
+      saveWidths(); applyColWidths();
+    });
+
+    // Tabs + stem visualizer
+    document.querySelectorAll('.tab-btn').forEach(b =>
+      b.addEventListener('click', () => switchTab(b.dataset.tab)));
+    document.getElementById('stem-filter').addEventListener('input', renderStemPicker);
+    document.getElementById('stem-prefix').addEventListener('change', () => { renderStemPicker(); renderTimeline(); });
+    document.getElementById('stem-all-btn').addEventListener('click', () => {
+      const filter = (document.getElementById('stem-filter').value || '').toLowerCase();
+      allStems().forEach(s => { if (!filter || s.name.toLowerCase().includes(filter)) selectedStems.add(s.name); });
+      renderStemPicker(); renderTimeline();
+    });
+    document.getElementById('stem-clear-btn').addEventListener('click', () => {
+      selectedStems.clear(); renderStemPicker(); renderTimeline();
+    });
+    document.getElementById('stem-stop-btn').addEventListener('click', () => {
+      stopPreview();
+      cueEngine.stopAll(0);
+    });
+    // Persist the audio base URL across sessions.
+    (function initStemBase() {
+      const el = document.getElementById('stem-base-url');
+      const saved = localStorage.getItem(STEM_BASE_LS_KEY);
+      if (saved) el.value = saved;
+      el.addEventListener('change', () => {
+        localStorage.setItem(STEM_BASE_LS_KEY, el.value.trim());
+        stopPreview();
+      });
+    })();
+    document.getElementById('undo-btn').addEventListener('click', undo);
+    document.getElementById('redo-btn').addEventListener('click', redo);
+    document.getElementById('cell-mode-btn').addEventListener('click', toggleCellMode);
+    updateCellModeBtn();
+    document.getElementById('refresh-stems-btn').addEventListener('click', () => ensureStems(true));
+    document.getElementById('open-btn').addEventListener('click', openFromDisk);
+    document.getElementById('save-btn').addEventListener('click', saveToDisk);
+    document.getElementById('bump-versions-btn').addEventListener('click', openBumpModal);
+    document.getElementById('add-cue-btn').addEventListener('click', openAddCueModal);
+    // Click a timeline event cell to edit Action / Volume / Speed / Notes inline.
+    document.getElementById('timeline').addEventListener('click', (e) => {
+      const td = e.target.closest && e.target.closest('td.slot');
+      if (!td) return;
+      const rowId = td.dataset.cueRowId;
+      if (!rowId) {
+        setStatus('No row here — click a coloured event bar (where this stem actually changes) to edit it.', 'err');
+        return;
+      }
+      const row = data.find(r => r.id === Number(rowId));
+      if (row) showCellEditor(td, row);
+    });
+    // Pick-by-cue section: collapsed by default to keep the Visualize tab tidy.
+    (function initCuePickToggle() {
+      const head = document.querySelector('.cue-pick-head');
+      const panel = document.getElementById('cue-pick-panel');
+      const toggle = document.getElementById('cue-pick-toggle');
+      if (!head || !panel) return;
+      head.addEventListener('click', () => {
+        const shown = panel.style.display !== 'none';
+        panel.style.display = shown ? 'none' : '';
+        if (toggle) toggle.textContent = shown ? 'show' : 'hide';
+        if (!shown) renderCuePicker();
+      });
+    })();
+    updateFileSystemButtons();
+    restoreLastFile();
+    // Load cache (if any) so the dropdown / red-highlight have data immediately;
+    // then refresh in the background if it's stale.
+    loadStemListFromCache();
+    updateStemListBtn();
+    setTimeout(() => ensureStems(false), 250);
+    // Ctrl/Cmd+Z = undo, Ctrl/Cmd+Shift+Z (or Ctrl+Y) = redo.
+    // Only intercept when not editing a text field, so native text undo still works inside a cell.
+    document.addEventListener('keydown', e => {
+      const tag = (document.activeElement && document.activeElement.tagName) || '';
+      const inField = tag === 'TEXTAREA' || tag === 'INPUT';
+      const meta = e.ctrlKey || e.metaKey;
+      if (!meta || inField) return;
+      const key = e.key.toLowerCase();
+      if (key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+      else if ((key === 'z' && e.shiftKey) || key === 'y') { e.preventDefault(); redo(); }
+    });
+
+    // ── Instant tooltip ─────────────────────────────────────────────────────────
+    // Any element with a data-tip attribute shows a styled popup instantly on
+    // hover, sidestepping the native ~500 ms title= delay.
+    (function initTooltip() {
+      const tip = document.createElement('div');
+      tip.id = 'tip-popup';
+      document.body.appendChild(tip);
+      const position = (e) => {
+        const pad = 14;
+        // Get size with current contents; offsetWidth is fine since display:block before this call.
+        const w = tip.offsetWidth, h = tip.offsetHeight;
+        let x = e.clientX + pad, y = e.clientY + pad;
+        if (x + w > window.innerWidth  - 4) x = e.clientX - w - pad;
+        if (y + h > window.innerHeight - 4) y = e.clientY - h - pad;
+        tip.style.left = Math.max(2, x) + 'px';
+        tip.style.top  = Math.max(2, y) + 'px';
+      };
+      let activeEl = null;
+      document.addEventListener('mouseover', (e) => {
+        const target = e.target.closest && e.target.closest('[data-tip]');
+        if (!target) return;
+        activeEl = target;
+        tip.textContent = target.dataset.tip || '';
+        tip.style.display = 'block';
+        position(e);
+      });
+      document.addEventListener('mousemove', (e) => {
+        if (tip.style.display !== 'block') return;
+        position(e);
+      });
+      document.addEventListener('mouseout', (e) => {
+        if (!activeEl) return;
+        // Hide only when truly leaving the active element (not just entering a child).
+        if (e.relatedTarget && activeEl.contains(e.relatedTarget)) return;
+        tip.style.display = 'none';
+        activeEl = null;
+      });
+      // If the underlying DOM gets re-rendered (very common here), drop the popup.
+      window.addEventListener('blur', () => { tip.style.display = 'none'; activeEl = null; });
+    })();
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, ch => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[ch]));
+    }
+    function setStatus(msg, cls) {
+      const el = document.getElementById('status');
+      el.textContent = msg; el.className = cls || '';
+    }
+
+    // Try to auto-load on start (works when served over http://).
+    window.addEventListener('load', () => {
+      document.getElementById('load-path-btn').click();
+    });
+  </script>
+</body>
+</html>
