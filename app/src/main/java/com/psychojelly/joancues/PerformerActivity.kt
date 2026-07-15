@@ -65,6 +65,28 @@ class PerformerActivity : AppCompatActivity() {
         logView = text(12f, soft, mono = true)
         root.addView(logView)
 
+        root.addView(android.widget.Button(this).apply {
+            text = "⚙  SWITCH MODE"
+            isAllCaps = false
+            setOnClickListener {
+                androidx.appcompat.app.AlertDialog.Builder(this@PerformerActivity)
+                    .setTitle("Switch mode?")
+                    .setMessage("Stops the performer listener and returns to the mode picker.")
+                    .setPositiveButton("Switch") { _, _ ->
+                        Prefs.clearMode(this@PerformerActivity)
+                        PerformerService.stop(this@PerformerActivity)
+                        startActivity(android.content.Intent(this@PerformerActivity, ModePickerActivity::class.java)
+                            .putExtra(ModePickerActivity.EXTRA_FORCE_PICKER, true))
+                        finish()
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { gravity = Gravity.CENTER; setMargins(0, 32, 0, 48) }
+        })
+
         setContentView(ScrollView(this).apply { setBackgroundColor(night); addView(root) })
 
         PerformerService.start(this)

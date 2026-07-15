@@ -12,13 +12,25 @@ import java.net.NetworkInterface
 
 /**
  * Launcher screen: choose what this tablet is.
- * One tap on show day; deliberately no auto-remember so a tablet can never
- * silently boot into the wrong role.
+ *
+ * The choice is remembered — next launch goes straight into the saved mode.
+ * Each mode has a "switch mode" control that clears the memory and returns
+ * here (Performer: the SWITCH MODE button; Operator: press Back).
  */
 class ModePickerActivity : AppCompatActivity() {
 
+    companion object { const val EXTRA_FORCE_PICKER = "force_picker" }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Auto-route into the remembered mode (unless we were sent here to re-choose).
+        if (!intent.getBooleanExtra(EXTRA_FORCE_PICKER, false)) {
+            when (Prefs.savedMode(this)) {
+                Prefs.MODE_OPERATOR -> { startActivity(Intent(this, MainActivity::class.java)); finish(); return }
+                Prefs.MODE_PERFORMER -> { startActivity(Intent(this, PerformerActivity::class.java)); finish(); return }
+            }
+        }
 
         val night = Color.parseColor("#0a0a0f")
         val gold = Color.parseColor("#d4af6a")
@@ -53,17 +65,19 @@ class ModePickerActivity : AppCompatActivity() {
         })
 
         root.addView(bigButton("🎛  Operator", "Cue controller + server — fires cues to the group") {
-            startActivity(Intent(this, MainActivity::class.java))
+            Prefs.saveMode(this, Prefs.MODE_OPERATOR)
+            startActivity(Intent(this, MainActivity::class.java)); finish()
         })
         root.addView(bigButton("🎭  Performer", "Listens for cues on :7000 and plays the audio") {
-            startActivity(Intent(this, PerformerActivity::class.java))
+            Prefs.saveMode(this, Prefs.MODE_PERFORMER)
+            startActivity(Intent(this, PerformerActivity::class.java)); finish()
         })
 
         root.addView(TextView(this).apply {
             val ip = localIp() ?: "unknown"
-            text = "this device: $ip"
+            text = "this device: $ip\nYour choice is remembered — switch later via SWITCH MODE (Performer) or Back (Operator)."
             textSize = 12f; setTextColor(Color.parseColor("#6f7186")); gravity = Gravity.CENTER
-            setPadding(0, 40, 0, 0)
+            setPadding(48, 40, 48, 0)
         })
 
         setContentView(root)

@@ -1,7 +1,10 @@
 # Joan Cues — Android Cue Controller & Performer Monitor
 
-A native Android app with **two modes**, picked on launch (one tap — nothing
-is auto-remembered, so a tablet can never silently boot into the wrong role):
+A native Android app with **two modes**. The choice is **remembered** — after
+the first pick, the tablet boots straight into its role. To change it:
+**Performer** → the ⚙ SWITCH MODE button; **Operator** → press **Back** (with
+no page history) and confirm. Both paths confirm before switching, so a
+mid-show mis-tap can't change a tablet's role.
 
 - **🎛 Operator** — the standalone cue brain: hosts the cue controller webpage
   and fires OSC/UDP cues to the group. Show-grade replacement for

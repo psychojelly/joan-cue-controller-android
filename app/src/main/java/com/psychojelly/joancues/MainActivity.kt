@@ -146,8 +146,19 @@ class MainActivity : AppCompatActivity() {
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        // Keep back-button from killing the controller mid-show; go back in
-        // page history if there is any, otherwise do nothing.
-        if (webView.canGoBack()) webView.goBack()
+        // Back never kills the controller mid-show: it walks page history if
+        // any, otherwise offers to switch mode (with confirmation).
+        if (webView.canGoBack()) { webView.goBack(); return }
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Switch mode?")
+            .setMessage("Returns to the mode picker. The cue server keeps running until the app task is closed.")
+            .setPositiveButton("Switch") { _, _ ->
+                Prefs.clearMode(this)
+                startActivity(android.content.Intent(this, ModePickerActivity::class.java)
+                    .putExtra(ModePickerActivity.EXTRA_FORCE_PICKER, true))
+                finish()
+            }
+            .setNegativeButton("Stay", null)
+            .show()
     }
 }
