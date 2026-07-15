@@ -1036,6 +1036,7 @@
     </div>
     <div class="tb-group">
       <button class="tb-btn" id="tb-load-csv" title="Reload audio CSV">↻ CSV</button>
+      <button class="tb-btn" id="tb-csv-all" title="Reload the CSV here AND send /audio/reload so every device in the audience re-fetches it">⟳ CSV → ALL</button>
       <button class="tb-btn" id="tb-settings" title="Settings">⚙ Settings</button>
     </div>
     <div class="tb-group" title="Toggle audiences to broadcast to. Cues go to the union of selected groups. 'All' is a shortcut for every known IP.">
@@ -2713,16 +2714,35 @@ async function loadAudioCsv() {
     const res = await fetch(url, { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const text = await res.text();
+    // Cache for offline use: a closed show network must never lose the cue list.
+    try {
+      localStorage.setItem('joan_csv_cache', text);
+      localStorage.setItem('joan_csv_cache_at', new Date().toLocaleString());
+    } catch (e) {}
     const cues = parseAudioCsv(text);
     const groups = buildAudioGroups(cues);
     rebuildAndRender({ audioGroups: groups });
     setStatus(`Loaded ${cues.length} cues → ${groups.length} groups`, 'ok');
   } catch (err) {
-    setStatus(`✗ CSV load failed: ${err.message}`, 'err');
+    // Offline fallback: rebuild from the last successfully fetched CSV.
+    const cached = localStorage.getItem('joan_csv_cache');
+    if (cached) {
+      const cues = parseAudioCsv(cached);
+      const groups = buildAudioGroups(cues);
+      rebuildAndRender({ audioGroups: groups });
+      setStatus(`⚠ offline — using cached CSV from ${localStorage.getItem('joan_csv_cache_at') || 'earlier'} (${cues.length} cues)`, 'err');
+    } else {
+      setStatus(`✗ CSV load failed: ${err.message}`, 'err');
+    }
   }
 }
 document.getElementById('audio-load-btn').addEventListener('click', loadAudioCsv);
 document.getElementById('tb-load-csv').addEventListener('click', loadAudioCsv);
+document.getElementById('tb-csv-all').addEventListener('click', async () => {
+  await loadAudioCsv();
+  await sendOsc('/audio/reload', 1);
+  setStatus('CSV reloaded here + /audio/reload sent to the audience', 'ok');
+});
 
 // ════════════════════════════════════════════════════════════════════════════
 // Utilities

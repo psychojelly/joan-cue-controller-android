@@ -155,6 +155,10 @@ class PerformerService : Service() {
                 OscDecoder.asString(v0),
                 OscDecoder.asFloat(msg.values.getOrNull(1)),
                 OscDecoder.asFloat(msg.values.getOrNull(2)))
+            "/audio/reload" -> {
+                log("reload requested — refetching CSV + stems")
+                Thread { eng.loadConfigAndPreload(); log("config: ${eng.status}") }.start()
+            }
             "/cue" -> log("visual cue ${OscDecoder.asString(v0)} (not rendered here)")
             else -> log("osc ${msg.address} ${msg.values.joinToString(" ")}")
         }

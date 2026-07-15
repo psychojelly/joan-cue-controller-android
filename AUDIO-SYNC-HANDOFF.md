@@ -79,6 +79,7 @@ support doubles).
 | `/clock/pong` | master → device (reply to sender) | `seq:int, masterTime:double` | timestamped reply |
 | `/audio/cue` | master → devices :7000 | `cueId:string [, playAt:double]` | **playAt absent = play now (today's behavior — full backwards compat)** |
 | `/sync` | master → devices :7000 | `stem:string, position:double, masterTime:double` | servo: where this stem should be |
+| `/audio/reload` | master → devices :7000 | `1:int` (ignored) | re-fetch the cue CSV + preload any new stems. Implemented in the tablet app (Performer) and fired by the controller's **⟳ CSV → ALL** button; **Unity should add the same handler** (re-run the CSV load + preload routine). |
 
 **Offset estimation (device side):** note local send time `t0`, receive
 `masterTime ts` at local `t1`. One sample: `offset = ts − (t0 + t1)/2`,
