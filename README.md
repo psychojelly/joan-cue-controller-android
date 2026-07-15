@@ -114,7 +114,26 @@ app updates — use the controller's Export Settings for backups anyway.
 | `app/src/main/java/.../CueServerService.kt` | Foreground service; wake + Wi-Fi locks; notification with IP |
 | `app/src/main/java/.../CueHttpServer.kt` | NanoHTTPD port of `server.py` (`/send` contract identical) |
 | `app/src/main/java/.../OscEncoder.kt` | Minimal OSC 1.0 binary encoder (i, f, s, T/F) |
+| `app/src/main/java/.../ModePickerActivity.kt` | Launcher: Operator / Performer choice + device IP |
+| `app/src/main/java/.../PerformerActivity.kt` | Performer status board: current cue, active stems, log |
+| `app/src/main/java/.../PerformerService.kt` | Foreground OSC listener on :7000 → StemEngine |
+| `app/src/main/java/.../StemEngine.kt` | Kotlin port of JoanAudio (CSV cues, stem download/cache, Loop/OneShot/Stop/StopAll, fades) |
+| `app/src/main/java/.../AudioCueCsv.kt` | Port of AudioCueConfig.cs (CSV parse, group keys, action aliases) |
+| `app/src/main/java/.../OscDecoder.kt` | OSC 1.0 decoder (receive side) |
 | `app/src/main/assets/web/` | The controller HTML (copied from `osc-cue-server`) |
+
+## Performer-mode parity notes
+
+- The stem engine is a **port, not the original** — Unity's JoanAudio remains
+  the source of truth. Before a performer relies on it, A/B the two against
+  the same cue sequence.
+- Stems are **file-cached but prepared at trigger time** (MediaPlayer), so
+  first-start of a big stem can lag a beat behind Unity's preloaded clips.
+  If that matters live, pre-prepared players are the next optimization.
+- `/audio/vol` values are clamped to 0–1 here; confirm what range the
+  controller actually sends.
+- No spatial audio / DSP — performer mode is a musical monitor, not a
+  replica of the headset mix.
 
 ## Known limitations / next steps
 
