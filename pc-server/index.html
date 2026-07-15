@@ -2975,6 +2975,12 @@ if (loadSettings().csvUrl) {
     <span id="dbg-status" style="font-size:11px; color:#6f7186; margin-left:auto;">idle</span>
     <button id="dbg-close" style="background:none; border:1px solid #2a2d3a; color:#cfd2e0; border-radius:6px; cursor:pointer; padding:2px 8px;">✕</button>
   </div>
+  <div style="display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px solid #2a2d3a;">
+    <span style="font-size:10px; letter-spacing:1px; color:#d4af6a;">SYNC TEST</span>
+    <button id="dbg-test" title="Generated triple beep, outside the cue system. With sync mode on it is scheduled on the master clock — all devices should beep as one." style="background:#1a2c1f; border:1px solid #2f5238; color:#9fe8ae; border-radius:6px; cursor:pointer; padding:4px 12px; font-family:inherit; font-size:12px;">🔊 test tone</button>
+    <button id="dbg-mute" title="Master mute on every targeted device. Stems keep playing silently, so unmuting stays in sync." style="background:none; border:1px solid #2a2d3a; color:#cfd2e0; border-radius:6px; cursor:pointer; padding:4px 12px; font-family:inherit; font-size:12px;">🔇 mute</button>
+    <span style="font-size:10px; color:#6f7186;">beeps ride the same clock as cues — one clean beep-beep-beep = in sync</span>
+  </div>
   <div style="padding:10px 14px; border-bottom:1px solid #2a2d3a;">
     <div style="font-size:10px; letter-spacing:1px; color:#d4af6a; margin-bottom:6px;">DEVICES</div>
     <div id="dbg-roster" style="font-size:11.5px; line-height:1.7;">(none yet — turn on reporting + heartbeat)</div>
@@ -3010,6 +3016,24 @@ if (loadSettings().csvUrl) {
   document.getElementById('dbg-hb').addEventListener('change', e => {
     sendOsc('/debug/heartbeat', e.target.checked ? 1 : 0);
     addLine('ctl', `heartbeat ${e.target.checked ? 'ON' : 'OFF'} → audience`);
+  });
+
+  // Sync test utilities. /audio/test rides sendOsc's normal sync-mode path
+  // (leadMs + playAt + 3x, deduped device-side), so the beeps are scheduled
+  // on the master clock exactly like a real cue — an audible sync check.
+  document.getElementById('dbg-test').addEventListener('click', () => {
+    sendOsc('/audio/test', 1);
+    addLine('ctl', 'test tone → audience');
+  });
+  let dbgMuted = false;
+  const muteBtn = document.getElementById('dbg-mute');
+  muteBtn.addEventListener('click', () => {
+    dbgMuted = !dbgMuted;
+    sendOsc('/audio/mute', dbgMuted ? 1 : 0);
+    muteBtn.textContent = dbgMuted ? '🔊 unmute' : '🔇 mute';
+    muteBtn.style.background = dbgMuted ? '#4a1f28' : 'none';
+    muteBtn.style.borderColor = dbgMuted ? '#8a3a48' : '#2a2d3a';
+    addLine('ctl', `${dbgMuted ? 'MUTE' : 'unmute'} → audience`);
   });
 
   function esc(s) { return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }

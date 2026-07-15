@@ -38,6 +38,14 @@ namespace JoanAudio
         public string DebugEnableAddress = "/debug/enable";
         public string DebugHeartbeatAddress = "/debug/heartbeat";
 
+        [Header("Sync test utilities")]
+        [Tooltip("/audio/mute [0|1] sets AudioListener.volume — stems keep playing " +
+                 "silently so unmuting stays in sync. /audio/test plays a generated " +
+                 "triple beep outside the cue system; with sync mode on it is " +
+                 "scheduled on the master clock like a real cue (audible sync check).")]
+        public string MuteAddress = "/audio/mute";
+        public string TestToneAddress = "/audio/test";
+
         // Dedupe for the sender's redundant 3x sends: (cueId|playAt), recent ~32.
         readonly Queue<string> dedupeOrder = new Queue<string>();
         readonly HashSet<string> dedupeSet = new HashSet<string>();
@@ -58,7 +66,43 @@ namespace JoanAudio
             Receiver.Bind(ClockMasterAddress, OnClockMaster);
             Receiver.Bind(DebugEnableAddress, OnDebugEnable);
             Receiver.Bind(DebugHeartbeatAddress, OnDebugHeartbeat);
+            Receiver.Bind(MuteAddress, OnMute);
+            Receiver.Bind(TestToneAddress, OnTestTone);
             DebugReporter.Attach(Controller);
+        }
+
+        /// <summary>/audio/mute [0|1] — master mute. Playback continues silently
+        /// (AudioListener.volume), so unmuting is still in sync. Sync-mode
+        /// senders may repeat this 3x with a trailing timestamp; it's idempotent
+        /// so both are harmless.</summary>
+        void OnMute(OSCMessage msg)
+        {
+            if (msg.Values.Count < 1) return;
+            bool mute = TryInt(msg.Values[0], 0) != 0;
+            AudioListener.volume = mute ? 0f : 1f;
+            Debug.Log($"[JoanAudio] {(mute ? "MUTED" : "Unmuted")} (/audio/mute)");
+            DebugReporter.Hud(mute ? "MUTED 🔇" : "unmuted 🔊");
+        }
+
+        /// <summary>/audio/test [x, playAt?] — generated triple beep outside the
+        /// cue system. In sync mode the server appends playAt and sends 3x;
+        /// dedupe matches the cue path so exactly one beep plays per press.</summary>
+        void OnTestTone(OSCMessage msg)
+        {
+            double playAt = 0;
+            if (UseScheduledSync && msg.Values.Count >= 2)
+            {
+                playAt = TryDouble(msg.Values[1], 0);
+                if (playAt > 0)
+                {
+                    string key = "~test|" + playAt.ToString("R");
+                    if (dedupeSet.Contains(key)) return;          // duplicate of a 3x send
+                    dedupeSet.Add(key); dedupeOrder.Enqueue(key);
+                    while (dedupeOrder.Count > 32) dedupeSet.Remove(dedupeOrder.Dequeue());
+                }
+            }
+            DebugReporter.ReportRx("TEST-TONE", MasterClock.Now, playAt);
+            TestTone.Play(playAt);
         }
 
         /// <summary>/debug/enable [0|1] — controller toggles verbose reporting + HUD.</summary>
