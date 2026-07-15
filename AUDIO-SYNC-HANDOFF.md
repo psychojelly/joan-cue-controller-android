@@ -62,9 +62,11 @@ master time →  |----------------|-----------●
 
 ## 3. Who is the clock master?
 
-**The device that runs the cue server** (Joan Cues app in Operator mode, or
-`server.py` on a PC). Master time = that device's monotonic clock. The master
-itself needs no sync — everyone else syncs to it.
+**The device that runs the cue server** — either an **operator tablet**
+(Joan Cues app in Operator mode) or a **PC** (`server.py`). **Which one the
+show uses is TBD** — the protocol and code paths are identical either way,
+so nothing here depends on that decision. Master time = that device's
+monotonic clock. The master itself needs no sync — everyone else syncs to it.
 
 ## 4. Message contracts (the whole protocol)
 
@@ -218,14 +220,14 @@ mid-stem — it should rejoin at the right position within one sync period.
 - One Wi-Fi 6 travel router **per Joan group, carried with the group** — the
   network moves with the headsets, keeping delay small and stable.
 
-## 6. Build order & effort
+## 6. Build order
 
-| Phase | Scope | Rough effort |
-|---|---|---|
-| 0 — clock sync | new small class ×3 targets | ~half day |
-| 1 — scheduled start | receiver + sender changes | ~1 day incl. testing |
-| 2 — servo | master show-clock + receiver servo | ~1 day |
-| 3 — ops | checklist only | show-day habit |
+| Phase | Scope |
+|---|---|
+| 0 — clock sync | new small class ×3 targets |
+| 1 — scheduled start | receiver + sender changes |
+| 2 — servo | master show-clock + receiver servo |
+| 3 — ops | checklist only |
 
 Each phase is useful alone; nothing blocks a show if later phases slip.
 
