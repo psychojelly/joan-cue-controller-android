@@ -3005,7 +3005,17 @@ if (loadSettings().csvUrl) {
     <div id="dbg-acks" style="font-size:11.5px; line-height:1.7;">(fire a cue with reporting on)</div>
   </div>
   <div style="flex:1; overflow-y:auto; padding:10px 14px;">
-    <div style="font-size:10px; letter-spacing:1px; color:#d4af6a; margin-bottom:6px;">LOG <span style="color:#6f7186">(newest first · mt = master-clock seconds)</span></div>
+    <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+      <span style="font-size:10px; letter-spacing:1px; color:#d4af6a;">VIEW</span>
+      <button id="dbg-view-log" style="background:#2a2d3a; border:1px solid #3a3d4a; color:#e8eaf2; border-radius:6px; cursor:pointer; padding:2px 10px; font-family:inherit; font-size:11px;">log</button>
+      <button id="dbg-view-graph" style="background:none; border:1px solid #2a2d3a; color:#8f93a8; border-radius:6px; cursor:pointer; padding:2px 10px; font-family:inherit; font-size:11px;">graph</button>
+      <span style="font-size:10px; color:#6f7186;">mt = master-clock seconds · newest first</span>
+    </div>
+    <div id="dbg-graph-wrap" style="display:none;">
+      <div style="font-size:10px; letter-spacing:1px; color:#d4af6a; margin-bottom:4px;">DEVICE DELAY <span style="color:#6f7186">(heartbeat transit, ms — device send → server receive on the master clock)</span></div>
+      <canvas id="dbg-graph" style="width:100%; height:150px; background:#12141d; border:1px solid #2a2d3a; border-radius:6px;"></canvas>
+      <div id="dbg-series-sel" style="font-size:11px; padding:6px 0; display:flex; flex-wrap:wrap; gap:10px;">(no devices yet)</div>
+    </div>
     <div id="dbg-log" style="font-size:11px; line-height:1.65; white-space:pre-wrap;"></div>
   </div>
 </div>
@@ -3016,10 +3026,17 @@ if (loadSettings().csvUrl) {
   const rosterEl = document.getElementById('dbg-roster');
   const logEl = document.getElementById('dbg-log');
   const statusEl = document.getElementById('dbg-status');
-  let lastSeq = 0, open = false;
+  let lastSeq = 0, open = false, view = 'log';
   const devices = {};           // id -> {ip, lastSeen(ms), hb:[...], kind, drift}
-  const lines = [];             // {t, html}
+  const lines = [];             // {dev, html} — dev = device id, undefined for control lines
   const acks = [];              // per-cue ack rollup: {key, cueId, scheduled, t, rx:{id:marginMs}}
+  // Delay graph: per-device series of heartbeat transit times. Both stamps are
+  // master-clock seconds (device send in the hb args, server receive on the
+  // event), so (receive − send) × 1000 = one-way transit in ms.
+  const series = {};            // id -> [{t, ms}], capped
+  const selSet = new Set();     // device ids currently selected in the graph view
+  const PALETTE = ['#7ee08a', '#5fb8c4', '#d4af6a', '#c48ae0', '#e07a7a', '#8fb8ff', '#e0b060', '#9fe8ae'];
+  const seriesColor = id => PALETTE[Object.keys(series).sort().indexOf(id) % PALETTE.length];
 
   document.getElementById('tb-debug').addEventListener('click', () => {
     open = !open;
@@ -3064,12 +3081,22 @@ if (loadSettings().csvUrl) {
 
   function esc(s) { return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 
-  function addLine(kind, text, mt) {
+  function addLine(kind, text, mt, dev) {
     const color = { rx:'#7ee08a', hb:'#5fb8c4', log:'#cfd2e0', ctl:'#d4af6a', err:'#e07a7a', raw:'#8f93a8' }[kind] || '#cfd2e0';
     const stamp = mt !== undefined ? `<span style="color:#6f7186">mt ${Number(mt).toFixed(3)}</span> ` : '';
-    lines.unshift(`<div style="color:${color}">${stamp}${esc(text)}</div>`);
+    lines.unshift({ dev, html: `<div style="color:${color}">${stamp}${esc(text)}</div>` });
     if (lines.length > 150) lines.pop();
-    if (open) logEl.innerHTML = lines.join('');
+    renderLog();
+  }
+
+  // In graph view the log below the chart shows only the selected devices
+  // (control lines with no device always show).
+  function renderLog() {
+    if (!open) return;
+    const visible = view === 'graph'
+      ? lines.filter(l => l.dev === undefined || selSet.has(l.dev))
+      : lines;
+    logEl.innerHTML = visible.map(l => l.html).join('');
   }
 
   function touch(id, ip) {
@@ -3085,7 +3112,7 @@ if (loadSettings().csvUrl) {
     switch (ev.addr) {
       case '/debug/hello': {
         const d = touch(a[0], ev.from); if (d) d.kind = a[1];
-        addLine('ctl', `HELLO ${a[0]} (${a[1]}) @ ${ev.from}`, ev.t); break;
+        addLine('ctl', `HELLO ${a[0]} (${a[1]}) @ ${ev.from}`, ev.t, a[0]); break;
       }
       case '/debug/hb': {
         const d = touch(a[0], ev.from);
@@ -3097,13 +3124,21 @@ if (loadSettings().csvUrl) {
           d.drift = (prev !== undefined && prev !== -1 && cur !== -1) ? Math.abs(cur - prev) : undefined;
           d.hb = { mt: a[1], lastCue: a[2], stems: a[3], offsetMs: a[4] };
         }
+        // Delay series: server receive time (ev.t) − device send time (a[1]),
+        // both master-clock seconds. Only meaningful once the device is synced.
+        if (Number(a[4]) !== -1) {
+          const ms = (ev.t - Number(a[1])) * 1000;
+          if (!series[a[0]]) { series[a[0]] = []; selSet.add(a[0]); renderSeriesSel(); }
+          series[a[0]].push({ t: ev.t, ms });
+          if (series[a[0]].length > 400) series[a[0]].shift();
+        }
         break;   // roster only — no log spam
       }
       case '/debug/rx': {
         touch(a[0], ev.from);
         const scheduled = a[3] > 0;
         const marginMs = scheduled ? (a[3] - a[2]) * 1000 : null;
-        addLine('rx', `RX ${a[0]}  cue ${a[1]}  ${scheduled ? `margin ${marginMs.toFixed(0)}ms` : '(immediate mode)'}`, ev.t);
+        addLine('rx', `RX ${a[0]}  cue ${a[1]}  ${scheduled ? `margin ${marginMs.toFixed(0)}ms` : '(immediate mode)'}`, ev.t, a[0]);
         // Per-cue ack rollup: scheduled cues group by their exact playAt;
         // immediate cues bucket by cueId within a 2 s window.
         const key = scheduled ? `${a[1]}|${a[3]}` : `${a[1]}|imm|${Math.floor(ev.t / 2)}`;
@@ -3115,7 +3150,7 @@ if (loadSettings().csvUrl) {
       }
       case '/debug/log': {
         touch(a[0], ev.from);
-        addLine(a[2] === 'error' ? 'err' : 'log', `${a[0]}: ${a[3]}`, a[1]); break;
+        addLine(a[2] === 'error' ? 'err' : 'log', `${a[0]}: ${a[3]}`, a[1], a[0]); break;
       }
       default:
         addLine('raw', `${ev.addr} ${a.join(' ')} @ ${ev.from}`, ev.t);
@@ -3158,6 +3193,94 @@ if (loadSettings().csvUrl) {
     }).join('');
   }
 
+  // ── Delay graph view ─────────────────────────────────────────────────────
+  const graphWrap = document.getElementById('dbg-graph-wrap');
+  const graphCanvas = document.getElementById('dbg-graph');
+  const seriesSelEl = document.getElementById('dbg-series-sel');
+  const viewLogBtn = document.getElementById('dbg-view-log');
+  const viewGraphBtn = document.getElementById('dbg-view-graph');
+
+  function setView(v) {
+    view = v;
+    graphWrap.style.display = v === 'graph' ? 'block' : 'none';
+    const on = 'background:#2a2d3a; border:1px solid #3a3d4a; color:#e8eaf2;';
+    const off = 'background:none; border:1px solid #2a2d3a; color:#8f93a8;';
+    viewLogBtn.style.cssText += ';' + (v === 'log' ? on : off);
+    viewGraphBtn.style.cssText += ';' + (v === 'graph' ? on : off);
+    renderLog();
+    if (v === 'graph') { renderSeriesSel(); drawGraph(); }
+  }
+  viewLogBtn.addEventListener('click', () => setView('log'));
+  viewGraphBtn.addEventListener('click', () => setView('graph'));
+
+  function renderSeriesSel() {
+    const ids = Object.keys(series).sort();
+    if (!ids.length) { seriesSelEl.textContent = '(no synced devices yet — needs heartbeat + clock sync)'; return; }
+    seriesSelEl.innerHTML = ids.map(id => {
+      const c = seriesColor(id);
+      const ip = (devices[id] && devices[id].ip) || '';
+      const on = selSet.has(id);
+      return `<label style="display:flex; align-items:center; gap:5px; cursor:pointer; opacity:${on ? 1 : 0.45};">
+        <input type="checkbox" data-dev="${esc(id)}" ${on ? 'checked' : ''} style="accent-color:${c};"/>
+        <span style="color:${c}; font-weight:600;">■ ${esc(id)}</span>
+        <span style="color:#6f7186;">${esc(ip)}</span>
+      </label>`;
+    }).join('');
+    seriesSelEl.querySelectorAll('input[type=checkbox]').forEach(cb => {
+      cb.addEventListener('change', e => {
+        const id = e.target.dataset.dev;
+        if (e.target.checked) selSet.add(id); else selSet.delete(id);
+        renderSeriesSel(); drawGraph(); renderLog();
+      });
+    });
+  }
+
+  function drawGraph() {
+    const ctx = graphCanvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const w = graphCanvas.clientWidth, h = graphCanvas.clientHeight;
+    if (graphCanvas.width !== w * dpr) { graphCanvas.width = w * dpr; graphCanvas.height = h * dpr; }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+
+    const WINDOW_S = 90;                                 // show the last 90 s
+    const sel = Object.keys(series).filter(id => selSet.has(id));
+    const all = sel.flatMap(id => series[id]);
+    ctx.font = '10px ui-monospace, Consolas, monospace';
+    if (!all.length) { ctx.fillStyle = '#6f7186'; ctx.fillText('waiting for heartbeats…', 10, h / 2); return; }
+
+    const tMax = Math.max(...all.map(p => p.t));
+    const tMin = tMax - WINDOW_S;
+    const visible = sel.map(id => ({ id, pts: series[id].filter(p => p.t >= tMin) }));
+    const msMax = Math.max(20, ...visible.flatMap(v => v.pts.map(p => p.ms)));   // ≥20 ms scale floor
+    const PAD_L = 34, PAD_B = 14, PAD_T = 6;
+    const X = t => PAD_L + ((t - tMin) / WINDOW_S) * (w - PAD_L - 4);
+    // Clamp to [0, msMax]: on loopback/very-good links the clock-sync error can
+    // exceed transit and read slightly negative — pin those to the 0 line.
+    const Y = ms => PAD_T + (1 - Math.min(Math.max(ms, 0), msMax) / msMax) * (h - PAD_T - PAD_B);
+
+    // grid + y labels (0, half, max)
+    ctx.strokeStyle = '#22242f'; ctx.fillStyle = '#6f7186';
+    [0, msMax / 2, msMax].forEach(v => {
+      const y = Y(v);
+      ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(w - 4, y); ctx.stroke();
+      ctx.fillText(`${v.toFixed(0)}ms`, 2, y + 3);
+    });
+    ctx.fillText(`last ${WINDOW_S}s`, w - 60, h - 3);
+
+    // one polyline per selected device; dot on the newest point
+    visible.forEach(v => {
+      if (!v.pts.length) return;
+      ctx.strokeStyle = seriesColor(v.id); ctx.lineWidth = 1.5; ctx.beginPath();
+      v.pts.forEach((p, i) => { const x = X(p.t), y = Y(p.ms); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+      ctx.stroke();
+      const last = v.pts[v.pts.length - 1];
+      ctx.fillStyle = seriesColor(v.id);
+      ctx.beginPath(); ctx.arc(X(last.t), Y(last.ms), 2.5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillText(`${last.ms.toFixed(1)}ms`, Math.min(X(last.t) + 5, w - 44), Y(last.ms) - 4);
+    });
+  }
+
   async function poll() {
     try {
       const res = await fetch(`${BASE}/debug/events?since=${lastSeq}`);
@@ -3168,7 +3291,10 @@ if (loadSettings().csvUrl) {
     } catch (e) {
       statusEl.textContent = 'feed unreachable';
     }
-    if (open) { renderRoster(); renderAcks(); }
+    if (open) {
+      renderRoster(); renderAcks();
+      if (view === 'graph') drawGraph();
+    }
   }
   setInterval(poll, 800);
 })();

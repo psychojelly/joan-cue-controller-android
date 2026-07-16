@@ -130,6 +130,16 @@ commits and can be deleted whenever.)
 
 ## Panel views (D1, extended 2026-07-15 evening)
 
+- **DELAY GRAPH** — a second view in the log area (VIEW: `log` | `graph`).
+  Line chart of each device's **heartbeat transit delay** over the last 90 s:
+  device's master-clock send time vs the server's master-clock receive time,
+  so the Y axis is real network delay in ms (plus residual clock error —
+  on loopback it can read slightly negative; clamped to the 0 line). One
+  colored series per device, fed at the heartbeat rate (1 Hz active / 5 s
+  safety). **Device checkboxes** toggle series on/off, and the **log below
+  filters to the selected devices** (control lines always show). Latest
+  value is labeled at the line's tip.
+
 - **CUE ACKS** — per-cue delivery rollup: `✔ cue A_SQ201 → 3/3 received
   (401 / 399 / 404ms)`. Scheduled cues group by their exact `playAt`
   (3× sends collapse to one row); immediate cues bucket by cueId in a 2 s
