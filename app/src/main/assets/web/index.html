@@ -2987,6 +2987,16 @@ if (loadSettings().csvUrl) {
     <b style="color:#d4af6a; font-size:14px;">🐞 DEBUG</b>
     <label style="font-size:12px; display:flex; gap:5px; align-items:center;"><input type="checkbox" id="dbg-on"/> reporting</label>
     <label style="font-size:12px; display:flex; gap:5px; align-items:center;"><input type="checkbox" id="dbg-hb"/> heartbeat</label>
+    <label style="font-size:12px; display:flex; gap:4px; align-items:center;">HUD
+      <select id="dbg-hud" title="In-headset HUD — independent of reporting: off, message feed, or margin line graph" style="background:#12141d; border:1px solid #2a2d3a; color:#cfd2e0; border-radius:5px; font-family:inherit; font-size:11px; padding:1px 4px;">
+        <option value="0">off</option><option value="1">feed</option><option value="2">graph</option>
+      </select>
+    </label>
+    <label style="font-size:12px; display:flex; gap:4px; align-items:center;">→
+      <select id="dbg-target" title="Where the debug toggles, HUD, test tone and mute are sent: the whole audience, or one device to isolate it" style="background:#12141d; border:1px solid #2a2d3a; color:#cfd2e0; border-radius:5px; font-family:inherit; font-size:11px; padding:1px 4px; max-width:130px;">
+        <option value="all">audience (all)</option>
+      </select>
+    </label>
     <span id="dbg-status" style="font-size:11px; color:#6f7186; margin-left:auto;">idle</span>
     <button id="dbg-close" style="background:none; border:1px solid #2a2d3a; color:#cfd2e0; border-radius:6px; cursor:pointer; padding:2px 8px;">✕</button>
   </div>
@@ -3011,10 +3021,10 @@ if (loadSettings().csvUrl) {
       <button id="dbg-view-graph" style="background:none; border:1px solid #2a2d3a; color:#8f93a8; border-radius:6px; cursor:pointer; padding:2px 10px; font-family:inherit; font-size:11px;">graph</button>
       <span style="font-size:10px; color:#6f7186;">mt = master-clock seconds · newest first</span>
     </div>
+    <div id="dbg-series-sel" style="font-size:11px; padding:0 0 6px 0; display:flex; flex-wrap:wrap; gap:10px;">(no devices yet)</div>
     <div id="dbg-graph-wrap" style="display:none;">
       <div style="font-size:10px; letter-spacing:1px; color:#d4af6a; margin-bottom:4px;">DEVICE DELAY <span style="color:#6f7186">(heartbeat transit, ms — device send → server receive on the master clock)</span></div>
-      <canvas id="dbg-graph" style="width:100%; height:150px; background:#12141d; border:1px solid #2a2d3a; border-radius:6px;"></canvas>
-      <div id="dbg-series-sel" style="font-size:11px; padding:6px 0; display:flex; flex-wrap:wrap; gap:10px;">(no devices yet)</div>
+      <canvas id="dbg-graph" style="width:100%; height:150px; background:#12141d; border:1px solid #2a2d3a; border-radius:6px; margin-bottom:6px;"></canvas>
     </div>
     <div id="dbg-log" style="font-size:11px; line-height:1.65; white-space:pre-wrap;"></div>
   </div>
@@ -3025,6 +3035,8 @@ if (loadSettings().csvUrl) {
   const panel = document.getElementById('dbg-panel');
   const rosterEl = document.getElementById('dbg-roster');
   const logEl = document.getElementById('dbg-log');
+  const targetSel = document.getElementById('dbg-target');
+  const hudSel = document.getElementById('dbg-hud');
   const statusEl = document.getElementById('dbg-status');
   let lastSeq = 0, open = false, view = 'log';
   const devices = {};           // id -> {ip, lastSeen(ms), hb:[...], kind, drift}
@@ -3034,9 +3046,9 @@ if (loadSettings().csvUrl) {
   // master-clock seconds (device send in the hb args, server receive on the
   // event), so (receive − send) × 1000 = one-way transit in ms.
   const series = {};            // id -> [{t, ms}], capped
-  const selSet = new Set();     // device ids currently selected in the graph view
+  const selSet = new Set();     // device ids selected in the filter (both views)
   const PALETTE = ['#7ee08a', '#5fb8c4', '#d4af6a', '#c48ae0', '#e07a7a', '#8fb8ff', '#e0b060', '#9fe8ae'];
-  const seriesColor = id => PALETTE[Object.keys(series).sort().indexOf(id) % PALETTE.length];
+  const seriesColor = id => PALETTE[Object.keys(devices).sort().indexOf(id) % PALETTE.length];
 
   document.getElementById('tb-debug').addEventListener('click', () => {
     open = !open;
@@ -3046,37 +3058,65 @@ if (loadSettings().csvUrl) {
     open = false; panel.style.display = 'none';
   });
 
+  // Where debug controls go: the whole audience, or one device isolated via
+  // the → dropdown (its IP, learned from the roster). Single-device sends
+  // post straight to /send for that host; audience sends use sendOsc.
+  function targetLabel() {
+    if (targetSel.value === 'all') return '→ audience';
+    const opt = targetSel.options[targetSel.selectedIndex];
+    return `→ ${opt ? opt.textContent.replace(/^only /, '') : targetSel.value} (${targetSel.value})`;
+  }
+  async function dbgSend(address, value) {
+    if (targetSel.value === 'all') return sendOsc(address, value);
+    lastSendMeta = { sentAt: undefined, playAt: undefined };
+    const s = loadSettings();
+    const port = parseInt(document.getElementById('port').value, 10);
+    const payload = { host: targetSel.value, port, address, value };
+    if (!!s.syncMode && address.startsWith('/audio/')) payload.leadMs = s.syncLeadMs || 400;
+    const PROXY_URL = location.protocol.startsWith('http') ? '/send' : 'http://127.0.0.1:8765/send';
+    try {
+      const r = await fetch(PROXY_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const j = await r.json().catch(() => ({}));
+      if (j && j.sentAt !== undefined) lastSendMeta = { sentAt: j.sentAt, playAt: j.playAt };
+      return r.ok;
+    } catch (e) { return false; }
+  }
+
   // Every control line is stamped with the server's master-clock send time
   // (lastSendMeta.sentAt), so an operator reads sent → reply on one time scale:
   // a SENT line, then each device's RX line at its own mt a few ms later.
   document.getElementById('dbg-on').addEventListener('change', async e => {
-    await sendOsc('/debug/enable', e.target.checked ? 1 : 0);
-    addLine('ctl', `SENT /debug/enable ${e.target.checked ? 1 : 0} → audience`, lastSendMeta.sentAt);
+    await dbgSend('/debug/enable', e.target.checked ? 1 : 0);
+    addLine('ctl', `SENT /debug/enable ${e.target.checked ? 1 : 0} ${targetLabel()}`, lastSendMeta.sentAt);
   });
   document.getElementById('dbg-hb').addEventListener('change', async e => {
-    await sendOsc('/debug/heartbeat', e.target.checked ? 1 : 0);
-    addLine('ctl', `SENT /debug/heartbeat ${e.target.checked ? 1 : 0} → audience`, lastSendMeta.sentAt);
+    await dbgSend('/debug/heartbeat', e.target.checked ? 1 : 0);
+    addLine('ctl', `SENT /debug/heartbeat ${e.target.checked ? 1 : 0} ${targetLabel()}`, lastSendMeta.sentAt);
+  });
+  hudSel.addEventListener('change', async e => {
+    await dbgSend('/debug/hud', parseInt(e.target.value, 10));
+    addLine('ctl', `SENT /debug/hud ${e.target.value} (${['off','feed','graph'][e.target.value]}) ${targetLabel()}`, lastSendMeta.sentAt);
   });
 
-  // Sync test utilities. /audio/test rides sendOsc's normal sync-mode path
+  // Sync test utilities. /audio/test rides the normal sync-mode path
   // (leadMs + playAt + 3x, deduped device-side), so the beeps are scheduled
   // on the master clock exactly like a real cue — an audible sync check.
   document.getElementById('dbg-test').addEventListener('click', async () => {
-    await sendOsc('/audio/test', 1);
+    await dbgSend('/audio/test', 1);
     const at = lastSendMeta.playAt !== undefined
       ? `  playAt ${lastSendMeta.playAt.toFixed(3)} (+${((lastSendMeta.playAt - lastSendMeta.sentAt) * 1000).toFixed(0)}ms)`
       : '';
-    addLine('ctl', `SENT /audio/test → audience${at}`, lastSendMeta.sentAt);
+    addLine('ctl', `SENT /audio/test ${targetLabel()}${at}`, lastSendMeta.sentAt);
   });
   let dbgMuted = false;
   const muteBtn = document.getElementById('dbg-mute');
   muteBtn.addEventListener('click', async () => {
     dbgMuted = !dbgMuted;
-    await sendOsc('/audio/mute', dbgMuted ? 1 : 0);
+    await dbgSend('/audio/mute', dbgMuted ? 1 : 0);
     muteBtn.textContent = dbgMuted ? '🔊 unmute' : '🔇 mute';
     muteBtn.style.background = dbgMuted ? '#4a1f28' : 'none';
     muteBtn.style.borderColor = dbgMuted ? '#8a3a48' : '#2a2d3a';
-    addLine('ctl', `SENT /audio/mute ${dbgMuted ? 1 : 0} → audience`, lastSendMeta.sentAt);
+    addLine('ctl', `SENT /audio/mute ${dbgMuted ? 1 : 0} ${targetLabel()}`, lastSendMeta.sentAt);
   });
 
   function esc(s) { return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
@@ -3089,21 +3129,21 @@ if (loadSettings().csvUrl) {
     renderLog();
   }
 
-  // In graph view the log below the chart shows only the selected devices
-  // (control lines with no device always show).
+  // The device filter applies in BOTH views: the log shows only selected
+  // devices (control lines with no device always show).
   function renderLog() {
     if (!open) return;
-    const visible = view === 'graph'
-      ? lines.filter(l => l.dev === undefined || selSet.has(l.dev))
-      : lines;
+    const visible = lines.filter(l => l.dev === undefined || selSet.has(l.dev));
     logEl.innerHTML = visible.map(l => l.html).join('');
   }
 
   function touch(id, ip) {
     if (!id) return null;
+    const isNew = !devices[id];
     devices[id] = devices[id] || {};
     devices[id].ip = ip || devices[id].ip;
     devices[id].lastSeen = Date.now();
+    if (isNew) { selSet.add(id); renderSeriesSel(); }
     return devices[id];
   }
 
@@ -3214,9 +3254,9 @@ if (loadSettings().csvUrl) {
   viewGraphBtn.addEventListener('click', () => setView('graph'));
 
   function renderSeriesSel() {
-    const ids = Object.keys(series).sort();
-    if (!ids.length) { seriesSelEl.textContent = '(no synced devices yet — needs heartbeat + clock sync)'; return; }
-    seriesSelEl.innerHTML = ids.map(id => {
+    const ids = Object.keys(devices).sort();
+    if (!ids.length) { seriesSelEl.textContent = '(no devices yet — turn on heartbeat, or wait for the safety beacon)'; return; }
+    seriesSelEl.innerHTML = '<span style="color:#6f7186; align-self:center;">filter:</span>' + ids.map(id => {
       const c = seriesColor(id);
       const ip = (devices[id] && devices[id].ip) || '';
       const on = selSet.has(id);
@@ -3233,6 +3273,11 @@ if (loadSettings().csvUrl) {
         renderSeriesSel(); drawGraph(); renderLog();
       });
     });
+    // Keep the control-target dropdown in sync with the roster.
+    const keep = targetSel.value;
+    targetSel.innerHTML = '<option value="all">audience (all)</option>' + ids.map(id =>
+      `<option value="${esc((devices[id] && devices[id].ip) || '')}">only ${esc(id)}</option>`).join('');
+    if ([...targetSel.options].some(o => o.value === keep)) targetSel.value = keep;
   }
 
   function drawGraph() {

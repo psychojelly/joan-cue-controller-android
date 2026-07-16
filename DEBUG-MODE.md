@@ -33,6 +33,7 @@ so the controller computes true send→receive margins per device per cue.
 |---|---|---|
 | `/debug/enable` | `0\|1` | Verbose reporting + in-headset HUD |
 | `/debug/heartbeat` | `0\|1` | 1 Hz roster beacon (independent toggle — roster without log spam) |
+| `/debug/hud` | `0\|1\|2` | In-headset HUD, **independent of reporting**: 0 off · 1 message feed · 2 margin line-graph (recent scheduled-cue margins, unsynced samples discarded) |
 | `/audio/test` | `1` (+ `playAt` appended in sync mode) | Generated triple beep, outside the cue system |
 | `/audio/mute` | `0\|1` | Master mute via `AudioListener.volume` |
 | `/audio/reload` | `1` (+ `playAt` in sync mode, deduped) | Re-fetch the cue CSV live; loads new/version-bumped stems without touching playback ("⟳ CSV → ALL" button) |
@@ -67,9 +68,13 @@ so the controller computes true send→receive margins per device per cue.
    mt 462403.218  RX USER  cue TEST-TONE  margin 401ms
    ```
 2. **Unity headsets**: `DebugReporter.cs` sends the reports (self-bootstrapping,
-   no scene changes); `DebugHud.cs` draws the in-glasses overlay — device id,
-   master IP, sync state + offset, heartbeat status, recent cue/log feed.
-   Immediate-mode GUI: no Canvas/TMP dependency. Exists only while enabled.
+   no scene changes); `DebugHud.cs` draws the in-glasses overlay, **controlled
+   separately from reporting via `/debug/hud`** — mode 1 is the message feed
+   (device id, master IP, sync state, heartbeat, recent cue/log lines), mode 2
+   is a **line graph of recent scheduled-cue margins** ("how much headroom
+   does THIS headset have," visible in the glasses). A stagehand can have the
+   HUD on with zero debug network traffic, or the operator can report without
+   cluttering the glasses. Immediate-mode GUI: no Canvas/TMP dependency.
 3. **Performer tablets**: `PerformerService.kt` sends the same `/debug/*`
    reports, so headsets and tablets share one roster.
 
@@ -130,6 +135,14 @@ commits and can be deleted whenever.)
 
 ## Panel views (D1, extended 2026-07-15 evening)
 
+- **DEVICE FILTER + TARGETING** — the per-device checkbox filter now sits
+  above both views and filters the log in `log` view too (control lines
+  always show). Next to the toggles, a **→ target dropdown** ("audience
+  (all)" or "only <device>") scopes every control — reporting, heartbeat,
+  HUD, test tone, mute — to one device's IP, so you can isolate a single
+  headset: turn its debug on, watch its lines, beep only it. SENT lines
+  label the target: `SENT /debug/hud 2 (graph) → USER (192.168.1.41)`.
+- **HUD select** — `HUD: off | feed | graph` dropdown drives `/debug/hud`.
 - **DELAY GRAPH** — a second view in the log area (VIEW: `log` | `graph`).
   Line chart of each device's **heartbeat transit delay** over the last 90 s:
   device's master-clock send time vs the server's master-clock receive time,

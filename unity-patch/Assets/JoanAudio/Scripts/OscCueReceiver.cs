@@ -37,6 +37,9 @@ namespace JoanAudio
                  "until an operator asks for them.")]
         public string DebugEnableAddress = "/debug/enable";
         public string DebugHeartbeatAddress = "/debug/heartbeat";
+        [Tooltip("In-headset HUD, independent of the reporting toggle: " +
+                 "/debug/hud 0 = off, 1 = message feed, 2 = margin line graph.")]
+        public string DebugHudAddress = "/debug/hud";
         [Tooltip("Show safety net: send a low-rate (5 s) heartbeat to the operator " +
                  "roster even when all debug toggles are off, so \"is headset 3 " +
                  "alive?\" is always answerable. Untick for strictly zero traffic " +
@@ -72,6 +75,7 @@ namespace JoanAudio
             Receiver.Bind(ClockMasterAddress, OnClockMaster);
             Receiver.Bind(DebugEnableAddress, OnDebugEnable);
             Receiver.Bind(DebugHeartbeatAddress, OnDebugHeartbeat);
+            Receiver.Bind(DebugHudAddress, OnDebugHud);
             Receiver.Bind(MuteAddress, OnMute);
             Receiver.Bind(TestToneAddress, OnTestTone);
             Receiver.Bind(ReloadAddress, OnReload);
@@ -146,6 +150,14 @@ namespace JoanAudio
         {
             if (msg.Values.Count < 1) return;
             DebugReporter.SetHeartbeat(TryInt(msg.Values[0], 0) != 0);
+        }
+
+        /// <summary>/debug/hud [0|1|2] — in-headset HUD off / feed / graph,
+        /// independent of the reporting toggle.</summary>
+        void OnDebugHud(OSCMessage msg)
+        {
+            if (msg.Values.Count < 1) return;
+            DebugReporter.SetHudMode(TryInt(msg.Values[0], 0));
         }
 
         /// <summary>/clock/master [ip:string] — the cue server announces itself.</summary>

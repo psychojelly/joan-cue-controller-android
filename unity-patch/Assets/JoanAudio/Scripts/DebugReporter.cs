@@ -45,6 +45,11 @@ namespace JoanAudio
         public static bool Enabled { get; private set; }
         public static bool HeartbeatOn { get; private set; }
 
+        /// <summary>In-headset HUD mode — controlled independently of the
+        /// reporting toggle via /debug/hud: 0 = off, 1 = message feed,
+        /// 2 = margin line graph.</summary>
+        public static int HudMode { get; private set; }
+
         /// <summary>Show safety net: once a master is known, send a low-rate
         /// (5 s) heartbeat even with all debug toggles off, so the operator
         /// roster always answers "is headset 3 alive?". One small packet per
@@ -67,6 +72,11 @@ namespace JoanAudio
         static readonly List<string> hudLog = new List<string>();
         internal static IReadOnlyList<string> HudLog => hudLog;
         internal static double LastHeartbeatAt { get; private set; }
+
+        // Scheduling-margin history for the HUD's graph mode. Main thread only.
+        const int MarginHistoryMax = 48;
+        static readonly List<float> marginHistory = new List<float>();
+        internal static IReadOnlyList<float> MarginHistory => marginHistory;
 
         /// <summary>Called by OscCueReceiver.Start() so heartbeats can report
         /// the last cue and active stem count.</summary>
@@ -109,15 +119,37 @@ namespace JoanAudio
             Debug.Log($"[JoanAudio] DebugReporter: heartbeat {(on ? "on" : "off")}");
         }
 
+        /// <summary>/debug/hud [0|1|2] — off / feed / graph. Independent of the
+        /// reporting toggle so a stagehand can see the glasses HUD without
+        /// turning on network debug traffic (and vice versa).</summary>
+        public static void SetHudMode(int mode)
+        {
+            mode = Mathf.Clamp(mode, 0, 2);
+            if (mode == HudMode) return;
+            HudMode = mode;
+            Host.Ensure();
+            Debug.Log($"[JoanAudio] DebugReporter: HUD {(mode == 0 ? "off" : mode == 1 ? "feed" : "graph")}");
+        }
+
         /// <summary>Cue received (called by OscCueReceiver for every accepted
-        /// cue). playAt = 0 means the immediate, unscheduled path.</summary>
+        /// cue). playAt = 0 means the immediate, unscheduled path. The HUD and
+        /// margin history update regardless of the reporting toggle; only the
+        /// network report is gated on Enabled.</summary>
         public static void ReportRx(string cueId, double recvMaster, double playAt)
         {
+            float marginMs = playAt > 0 ? (float)((playAt - recvMaster) * 1000.0) : 0f;
+            // Record for the HUD graph only when the margin is meaningful: the
+            // clock must be synced (an unsynced "margin" is epoch garbage that
+            // would wreck the graph's scale).
+            if (playAt > 0 && MasterClock.IsSynced && Mathf.Abs(marginMs) < 60000f)
+            {
+                marginHistory.Add(marginMs);
+                while (marginHistory.Count > MarginHistoryMax) marginHistory.RemoveAt(0);
+            }
+            Hud(playAt > 0 ? $"rx {cueId}  margin {marginMs:F0}ms" : $"rx {cueId}  (immediate)");
+
             if (!Enabled) return;
             Send("/debug/rx", DeviceId, cueId, recvMaster, playAt);
-            Hud(playAt > 0
-                ? $"rx {cueId}  margin {(playAt - recvMaster) * 1000.0:F0}ms"
-                : $"rx {cueId}  (immediate)");
         }
 
         // ---- heartbeat (driven by the host's Update, main thread) ------------
@@ -194,6 +226,7 @@ namespace JoanAudio
             udp = null;
             Enabled = false;
             HeartbeatOn = false;
+            HudMode = 0;
         }
 
         // ---- minimal OSC encoder (strings, int32, float64) --------------------
