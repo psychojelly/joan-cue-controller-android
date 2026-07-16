@@ -87,6 +87,7 @@ class PerformerService : Service() {
                 log("config: ${eng.status}")
             }.start()
             startListening(eng)
+            ensureHeartbeatThread()   // safety-net roster beacon (5 s once a master is known)
         }
 
         createChannel()
@@ -125,6 +126,8 @@ class PerformerService : Service() {
     }
 
     // ---- Debug observability (device side): reports to master :9002 ---------
+    /** Low-rate always-on roster beacon, parity with Unity's DebugReporter. */
+    private val SAFETY_HEARTBEAT = true
     @Volatile private var debugEnabled = false
     @Volatile private var heartbeatEnabled = false
     private var hbThread: Thread? = null
@@ -157,19 +160,31 @@ class PerformerService : Service() {
 
     private fun setHeartbeat(on: Boolean) {
         heartbeatEnabled = on
-        if (on && (hbThread?.isAlive != true)) {
-            hbThread = Thread {
-                while (heartbeatEnabled && running) {
+        ensureHeartbeatThread()
+    }
+
+    /**
+     * One heartbeat thread for both modes — parity with Unity's DebugReporter:
+     * 1 s while the operator has the roster on, 5 s safety-net otherwise (so
+     * the roster always answers "is this tablet alive?" once a master is
+     * known, even mid-show with debug off). Set SAFETY_HEARTBEAT = false for
+     * the old strictly-zero-traffic behavior. Exits with the service.
+     */
+    private fun ensureHeartbeatThread() {
+        if (hbThread?.isAlive == true) return
+        hbThread = Thread {
+            while (running) {
+                if (MasterClock.master != null && (heartbeatEnabled || SAFETY_HEARTBEAT)) {
                     val eng = engine
                     sendDebug("/debug/hb", deviceId,
                         MasterClock.now() ?: -1.0,
                         eng?.lastCueId ?: "",
                         eng?.activeStems()?.size ?: 0,
                         MasterClock.offsetMs ?: -1.0)
-                    Thread.sleep(1000)
                 }
-            }.apply { isDaemon = true; start() }
-        }
+                Thread.sleep(if (heartbeatEnabled) 1000L else 5000L)
+            }
+        }.apply { isDaemon = true; start() }
     }
 
     private fun handle(eng: StemEngine, msg: OscDecoder.Message) {

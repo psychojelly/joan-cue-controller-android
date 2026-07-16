@@ -151,11 +151,19 @@ commits and can be deleted whenever.)
 
 ## Known notes / small follow-ups
 
-- Tablet parity for the safety heartbeat: `PerformerService.kt` still only
-  heartbeats while debug is enabled — mirror the Unity 5 s safety-net there.
-- The Kotlin/Gradle changes (notification Stop action, signing scaffold) were
-  made without a local Gradle toolchain — one `assembleDebug` in Android
-  Studio to confirm before shipping a build.
+- ~~Tablet safety-heartbeat parity~~ — **done + emulator-verified**
+  (2026-07-15 night): `PerformerService` runs one heartbeat thread for both
+  modes, 1 s active / 5 s safety once a master is known;
+  `SAFETY_HEARTBEAT = false` in the file restores strictly-zero traffic.
+  Verified end-to-end on the `joan_tablet` emulator: cue in via UDP redir →
+  master learned → clock synced against the host → hb every 5.0 s at the
+  host's `/debug/events` with debug off.
+- ~~APK build check~~ — **done**: `assembleDebug` passes; notification
+  **Stop server** action verified on the emulator (tap → server torn down,
+  service destroyed, notification dismissed). Note: shell/other apps cannot
+  fire the stop intent (service not exported) — only the notification can.
 - ~~offsetMs roster display~~ · ~~"2 audio listeners" spam~~ ·
   ~~always-on heartbeat~~ · ~~/audio/reload in Unity~~ · ~~per-cue ack
   summary~~ — **all done 2026-07-15 evening.**
+- Remaining: **multi-device verification on real headsets** (scheduled), and
+  sync **Phase 2 (position servo)** as the only unbuilt design item.
