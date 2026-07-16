@@ -45,6 +45,13 @@ namespace JoanAudio
                  "alive?\" is always answerable. Untick for strictly zero traffic " +
                  "when debug is off.")]
         public bool AlwaysOnSafetyHeartbeat = true;
+        [Tooltip("Android Wi-Fi low-latency lock (keeps the radio from power-saving, " +
+                 "which causes periodic transit spikes). Operator toggles it live with " +
+                 "/debug/wifilock 0|1.")]
+        public string WifiLockAddress = "/debug/wifilock";
+        [Tooltip("Acquire the Wi-Fi low-latency lock automatically on app start " +
+                 "(recommended for the show). The operator can still toggle it live.")]
+        public bool WifiLockOnStart = true;
 
         [Header("Sync test utilities")]
         [Tooltip("/audio/mute [0|1] sets AudioListener.volume — stems keep playing " +
@@ -79,8 +86,21 @@ namespace JoanAudio
             Receiver.Bind(MuteAddress, OnMute);
             Receiver.Bind(TestToneAddress, OnTestTone);
             Receiver.Bind(ReloadAddress, OnReload);
+            Receiver.Bind(WifiLockAddress, OnWifiLock);
             DebugReporter.SafetyHeartbeat = AlwaysOnSafetyHeartbeat;
             DebugReporter.Attach(Controller);
+            if (WifiLockOnStart) WifiLockManager.SetLocked(true);
+        }
+
+        /// <summary>/debug/wifilock [0|1] — operator toggles the Android Wi-Fi
+        /// low-latency lock to stabilize cue transit (kills periodic power-save
+        /// spikes). No-op off-device.</summary>
+        void OnWifiLock(OSCMessage msg)
+        {
+            if (msg.Values.Count < 1) return;
+            bool on = TryInt(msg.Values[0], 0) != 0;
+            WifiLockManager.SetLocked(on);
+            DebugReporter.Hud(on ? "Wi-Fi lock ON" : "Wi-Fi lock off");
         }
 
         /// <summary>/audio/reload — the controller's "⟳ CSV → ALL" button:

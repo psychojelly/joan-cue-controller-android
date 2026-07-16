@@ -34,6 +34,7 @@ so the controller computes true send→receive margins per device per cue.
 | `/debug/enable` | `0\|1` | Verbose reporting + in-headset HUD |
 | `/debug/heartbeat` | `0\|1` | 1 Hz roster beacon (independent toggle — roster without log spam) |
 | `/debug/hud` | `0\|1\|2` | In-headset HUD, **independent of reporting**: 0 off · 1 message feed · 2 margin line-graph (recent scheduled-cue margins, unsynced samples discarded) |
+| `/debug/wifilock` | `0\|1` | Android Wi-Fi low-latency lock on the device. 1 pins the radio at full power (kills periodic power-save transit spikes); 0 releases. Defaults ON at app start (`WifiLockOnStart`). A/B it against the delay graph. Glasses/Unity feature branch: `wifi-lock`. |
 | `/audio/test` | `1` (+ `playAt` appended in sync mode) | Generated triple beep, outside the cue system |
 | `/audio/mute` | `0\|1` | Master mute via `AudioListener.volume` |
 | `/audio/reload` | `1` (+ `playAt` in sync mode, deduped) | Re-fetch the cue CSV live; loads new/version-bumped stems without touching playback ("⟳ CSV → ALL" button) |

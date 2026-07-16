@@ -2987,6 +2987,7 @@ if (loadSettings().csvUrl) {
     <b style="color:#d4af6a; font-size:14px;">🐞 DEBUG</b>
     <label style="font-size:12px; display:flex; gap:5px; align-items:center;"><input type="checkbox" id="dbg-on"/> reporting</label>
     <label style="font-size:12px; display:flex; gap:5px; align-items:center;"><input type="checkbox" id="dbg-hb"/> heartbeat</label>
+    <label style="font-size:12px; display:flex; gap:5px; align-items:center;" title="Android Wi-Fi low-latency lock on the device — keeps the radio from power-saving, which causes periodic transit spikes. A/B against the delay graph."><input type="checkbox" id="dbg-wifi"/> Wi-Fi lock</label>
     <label style="font-size:12px; display:flex; gap:4px; align-items:center;">HUD
       <select id="dbg-hud" title="In-headset HUD — independent of reporting: off, message feed, or margin line graph" style="background:#12141d; border:1px solid #2a2d3a; color:#cfd2e0; border-radius:5px; font-family:inherit; font-size:11px; padding:1px 4px;">
         <option value="0">off</option><option value="1">feed</option><option value="2">graph</option>
@@ -3092,6 +3093,10 @@ if (loadSettings().csvUrl) {
   document.getElementById('dbg-hb').addEventListener('change', async e => {
     await dbgSend('/debug/heartbeat', e.target.checked ? 1 : 0);
     addLine('ctl', `SENT /debug/heartbeat ${e.target.checked ? 1 : 0} ${targetLabel()}`, lastSendMeta.sentAt);
+  });
+  document.getElementById('dbg-wifi').addEventListener('change', async e => {
+    await dbgSend('/debug/wifilock', e.target.checked ? 1 : 0);
+    addLine('ctl', `SENT /debug/wifilock ${e.target.checked ? 1 : 0} (radio ${e.target.checked ? 'pinned' : 'default'}) ${targetLabel()}`, lastSendMeta.sentAt);
   });
   hudSel.addEventListener('change', async e => {
     await dbgSend('/debug/hud', parseInt(e.target.value, 10));
