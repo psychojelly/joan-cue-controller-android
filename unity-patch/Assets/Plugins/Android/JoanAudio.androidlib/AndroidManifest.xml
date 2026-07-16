@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- JoanAudio manifest fragment, merged into the app manifest at build time.
+     WAKE_LOCK is required by WifiManager.WifiLock.acquire() — the Wi-Fi
+     low-latency lock (WifiLockManager.cs) that stops the radio's power-save
+     cycle from spiking cue transit. Normal permission, granted at install. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="com.psychojelly.joanaudio">
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+</manifest>
