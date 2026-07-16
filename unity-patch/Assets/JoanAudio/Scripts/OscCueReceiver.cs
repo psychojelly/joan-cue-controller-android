@@ -37,6 +37,11 @@ namespace JoanAudio
                  "until an operator asks for them.")]
         public string DebugEnableAddress = "/debug/enable";
         public string DebugHeartbeatAddress = "/debug/heartbeat";
+        [Tooltip("Show safety net: send a low-rate (5 s) heartbeat to the operator " +
+                 "roster even when all debug toggles are off, so \"is headset 3 " +
+                 "alive?\" is always answerable. Untick for strictly zero traffic " +
+                 "when debug is off.")]
+        public bool AlwaysOnSafetyHeartbeat = true;
 
         [Header("Sync test utilities")]
         [Tooltip("/audio/mute [0|1] sets AudioListener.volume — stems keep playing " +
@@ -45,6 +50,7 @@ namespace JoanAudio
                  "scheduled on the master clock like a real cue (audible sync check).")]
         public string MuteAddress = "/audio/mute";
         public string TestToneAddress = "/audio/test";
+        public string ReloadAddress = "/audio/reload";
 
         // Dedupe for the sender's redundant 3x sends: (cueId|playAt), recent ~32.
         readonly Queue<string> dedupeOrder = new Queue<string>();
@@ -68,7 +74,30 @@ namespace JoanAudio
             Receiver.Bind(DebugHeartbeatAddress, OnDebugHeartbeat);
             Receiver.Bind(MuteAddress, OnMute);
             Receiver.Bind(TestToneAddress, OnTestTone);
+            Receiver.Bind(ReloadAddress, OnReload);
+            DebugReporter.SafetyHeartbeat = AlwaysOnSafetyHeartbeat;
             DebugReporter.Attach(Controller);
+        }
+
+        /// <summary>/audio/reload — the controller's "⟳ CSV → ALL" button:
+        /// re-fetch the cue CSV and load new/changed stems live. Deduped like
+        /// cues (sync-mode senders repeat 3x with a trailing timestamp).</summary>
+        void OnReload(OSCMessage msg)
+        {
+            if (Controller == null) return;
+            if (msg.Values.Count >= 2)
+            {
+                double stamp = TryDouble(msg.Values[1], 0);
+                if (stamp > 0)
+                {
+                    string key = "~reload|" + stamp.ToString("R");
+                    if (dedupeSet.Contains(key)) return;          // duplicate of a 3x send
+                    dedupeSet.Add(key); dedupeOrder.Enqueue(key);
+                    while (dedupeOrder.Count > 32) dedupeSet.Remove(dedupeOrder.Dequeue());
+                }
+            }
+            DebugReporter.Hud("CSV reload requested");
+            Controller.ReloadConfig();
         }
 
         /// <summary>/audio/mute [0|1] — master mute. Playback continues silently

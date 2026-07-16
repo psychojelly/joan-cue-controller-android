@@ -3000,6 +3000,10 @@ if (loadSettings().csvUrl) {
     <div style="font-size:10px; letter-spacing:1px; color:#d4af6a; margin-bottom:6px;">DEVICES</div>
     <div id="dbg-roster" style="font-size:11.5px; line-height:1.7;">(none yet — turn on reporting + heartbeat)</div>
   </div>
+  <div style="padding:10px 14px; border-bottom:1px solid #2a2d3a;">
+    <div style="font-size:10px; letter-spacing:1px; color:#d4af6a; margin-bottom:6px;">CUE ACKS <span style="color:#6f7186">(devices received / roster · scheduling margins)</span></div>
+    <div id="dbg-acks" style="font-size:11.5px; line-height:1.7;">(fire a cue with reporting on)</div>
+  </div>
   <div style="flex:1; overflow-y:auto; padding:10px 14px;">
     <div style="font-size:10px; letter-spacing:1px; color:#d4af6a; margin-bottom:6px;">LOG <span style="color:#6f7186">(newest first · mt = master-clock seconds)</span></div>
     <div id="dbg-log" style="font-size:11px; line-height:1.65; white-space:pre-wrap;"></div>
@@ -3013,8 +3017,9 @@ if (loadSettings().csvUrl) {
   const logEl = document.getElementById('dbg-log');
   const statusEl = document.getElementById('dbg-status');
   let lastSeq = 0, open = false;
-  const devices = {};           // id -> {ip, lastSeen(ms), hb:[...], kind}
+  const devices = {};           // id -> {ip, lastSeen(ms), hb:[...], kind, drift}
   const lines = [];             // {t, html}
+  const acks = [];              // per-cue ack rollup: {key, cueId, scheduled, t, rx:{id:marginMs}}
 
   document.getElementById('tb-debug').addEventListener('click', () => {
     open = !open;
@@ -3084,13 +3089,29 @@ if (loadSettings().csvUrl) {
       }
       case '/debug/hb': {
         const d = touch(a[0], ev.from);
-        if (d) d.hb = { mt: a[1], lastCue: a[2], stems: a[3], offsetMs: a[4] };
+        if (d) {
+          // Clock health = offset *stability* between heartbeats, not the raw
+          // value (which is epoch-relative and meaningless to read).
+          const prev = d.hb ? Number(d.hb.offsetMs) : undefined;
+          const cur = Number(a[4]);
+          d.drift = (prev !== undefined && prev !== -1 && cur !== -1) ? Math.abs(cur - prev) : undefined;
+          d.hb = { mt: a[1], lastCue: a[2], stems: a[3], offsetMs: a[4] };
+        }
         break;   // roster only — no log spam
       }
       case '/debug/rx': {
         touch(a[0], ev.from);
-        const margin = a[3] > 0 ? `margin ${((a[3] - a[2]) * 1000).toFixed(0)}ms` : '(immediate mode)';
-        addLine('rx', `RX ${a[0]}  cue ${a[1]}  ${margin}`, ev.t); break;
+        const scheduled = a[3] > 0;
+        const marginMs = scheduled ? (a[3] - a[2]) * 1000 : null;
+        addLine('rx', `RX ${a[0]}  cue ${a[1]}  ${scheduled ? `margin ${marginMs.toFixed(0)}ms` : '(immediate mode)'}`, ev.t);
+        // Per-cue ack rollup: scheduled cues group by their exact playAt;
+        // immediate cues bucket by cueId within a 2 s window.
+        const key = scheduled ? `${a[1]}|${a[3]}` : `${a[1]}|imm|${Math.floor(ev.t / 2)}`;
+        let g = acks.find(x => x.key === key);
+        if (!g) { g = { key, cueId: a[1], scheduled, t: ev.t, rx: {} }; acks.unshift(g); if (acks.length > 6) acks.pop(); }
+        g.rx[a[0]] = marginMs;
+        renderAcks();
+        break;
       }
       case '/debug/log': {
         touch(a[0], ev.from);
@@ -3107,9 +3128,33 @@ if (loadSettings().csvUrl) {
     rosterEl.innerHTML = ids.sort().map(id => {
       const d = devices[id];
       const age = (Date.now() - d.lastSeen) / 1000;
-      const dot = age < 3 ? '🟢' : age < 10 ? '🟡' : '🔴';
-      const hb = d.hb ? `  off ${Number(d.hb.offsetMs).toFixed(1)}ms  cue ${d.hb.lastCue || '—'}  stems ${d.hb.stems}` : '';
+      // Safety heartbeat is 5 s, active heartbeat 1 s — green covers both.
+      const dot = age < 7 ? '🟢' : age < 15 ? '🟡' : '🔴';
+      let clock = '';
+      if (d.hb) {
+        // offsetMs is epoch-relative (raw applied offset; -1 = unsynced), so
+        // show sync *health*: synced or not, and how stable between beats.
+        if (Number(d.hb.offsetMs) === -1) clock = '  clock ⚠ unsynced';
+        else clock = `  clock ✓${d.drift !== undefined ? ` Δ${d.drift.toFixed(1)}ms` : ''}`;
+      }
+      const hb = d.hb ? `${clock}  cue ${d.hb.lastCue || '—'}  stems ${d.hb.stems}` : '';
       return `<div>${dot} <b>${esc(id)}</b> <span style="color:#6f7186">${esc(d.ip || '')} · ${age.toFixed(0)}s ago${esc(hb)}</span></div>`;
+    }).join('');
+  }
+
+  const acksEl = document.getElementById('dbg-acks');
+  function renderAcks() {
+    if (!acks.length) { acksEl.textContent = '(fire a cue with reporting on)'; return; }
+    const rosterN = Object.keys(devices).length;
+    acksEl.innerHTML = acks.map(g => {
+      const got = Object.keys(g.rx).sort();
+      const n = got.length, N = Math.max(rosterN, n);
+      const full = n >= N;
+      const margins = g.scheduled
+        ? ` (${got.map(id => `${g.rx[id].toFixed(0)}`).join(' / ')}ms)`
+        : ' (immediate)';
+      const color = full ? '#7ee08a' : '#e0b060';
+      return `<div style="color:${color}">${full ? '✔' : '…'} cue <b>${esc(g.cueId)}</b> → ${n}/${N} received${esc(margins)}</div>`;
     }).join('');
   }
 
@@ -3123,7 +3168,7 @@ if (loadSettings().csvUrl) {
     } catch (e) {
       statusEl.textContent = 'feed unreachable';
     }
-    if (open) renderRoster();
+    if (open) { renderRoster(); renderAcks(); }
   }
   setInterval(poll, 800);
 })();

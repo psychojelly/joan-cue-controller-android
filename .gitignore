@@ -9,3 +9,8 @@ captures/
 .externalNativeBuild/
 .cxx/
 .kotlin/
+
+# Release signing — never commit keys
+app/keystore.properties
+app/*.keystore
+*.jks

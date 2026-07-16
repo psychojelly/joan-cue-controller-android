@@ -31,6 +31,7 @@ class CueServerService : Service() {
         private const val TAG = "CueServerService"
         private const val CHANNEL_ID = "cue_server"
         private const val NOTIF_ID = 1
+        private const val ACTION_STOP = "com.psychojelly.joancues.STOP_SERVER"
 
         @Volatile var running = false; private set
 
@@ -38,6 +39,11 @@ class CueServerService : Service() {
             val intent = Intent(context, CueServerService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
             else context.startService(intent)
+        }
+
+        /** Explicit stop — used by the notification's "Stop server" action. */
+        fun stop(context: Context) {
+            context.startService(Intent(context, CueServerService::class.java).setAction(ACTION_STOP))
         }
     }
 
@@ -53,6 +59,14 @@ class CueServerService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Notification "Stop server" action: tear down (onDestroy releases
+        // locks, sockets, and threads) and don't let START_STICKY revive us.
+        if (intent?.action == ACTION_STOP) {
+            Log.i(TAG, "Stop requested from notification")
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return START_NOT_STICKY
+        }
         if (server == null) {
             // Locks: CPU stays awake; Wi-Fi stays in low-latency mode.
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -157,12 +171,16 @@ class CueServerService : Service() {
             Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE)
         val ip = localIp() ?: "this device"
+        val stop = PendingIntent.getService(this, 1,
+            Intent(this, CueServerService::class.java).setAction(ACTION_STOP),
+            PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Joan cue server running")
             .setContentText("http://$ip:${CueHttpServer.PORT} — other devices can connect here")
             .setSmallIcon(android.R.drawable.stat_notify_sync_noanim)
             .setOngoing(true)
             .setContentIntent(tap)
+            .addAction(android.R.drawable.ic_media_pause, "Stop server", stop)
             .build()
     }
 

@@ -138,14 +138,53 @@ app updates — use the controller's Export Settings for backups anyway.
 - No spatial audio / DSP — performer mode is a musical monitor, not a
   replica of the headset mix.
 
-## Known limitations / next steps
+## Stopping the server
 
-- **Stop button:** closing the app's task stops the service; there's no
-  explicit "stop server" UI yet.
-- **Release signing:** debug builds are fine for sideloading; add a signing
-  key before wide distribution.
-- **Kiosk mode:** consider Android screen pinning so a docent can't leave the
-  app mid-show.
+The foreground notification now has a **"Stop server" action** — tapping it
+tears down the HTTP server, the clock responder, the debug listener, and
+releases the wake/Wi-Fi locks. (Closing the app's task still works too.)
+
+## Release signing
+
+Debug builds remain fine for sideloading. For signed release builds, create
+`app/keystore.properties` (gitignored — never commit keys):
+
+```
+storeFile=joan-release.keystore
+storePassword=...
+keyAlias=joan
+keyPassword=...
+```
+
+Generate the keystore once:
+
+```bash
+keytool -genkeypair -v -keystore app/joan-release.keystore -alias joan \
+  -keyalg RSA -keysize 2048 -validity 10000
+```
+
+`./gradlew assembleRelease` then produces a signed APK; without the
+properties file, release builds are unsigned exactly as before. **Keep a
+backup of the keystore + passwords in the team password manager — losing it
+means a new app identity.**
+
+## Kiosk mode (show-day runbook)
+
+Use Android **screen pinning** so a docent can't leave the app mid-show —
+no app change needed:
+
+1. Settings → Security → **App pinning** (or "Screen pinning") → enable, and
+   turn on "Ask for PIN before unpinning".
+2. Open the Joan Cues app, then open Recents and tap the app's icon →
+   **Pin**.
+3. To unpin: hold Back + Recents, then enter the device PIN.
+
+On Fire tablets the equivalent is Settings → Security & Privacy → Lock-Screen
+& Apps, or use Fire's "Show Mode" restrictions. For a harder lock-down
+(dedicated show tablets), Android's Lock Task mode via a device-owner app is
+the next step — not currently wired in.
+
+## Known limitations / next steps
 - The `/send` contract and value-typing rules are specified in the Unity
   repo's `osc-cue-server/HANDOFF.md` — that document is the source of truth
   for parity.

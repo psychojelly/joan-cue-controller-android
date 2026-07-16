@@ -82,6 +82,52 @@ namespace JoanAudio
             }
         }
 
+        /// <summary>/audio/reload — re-fetch the cue CSV and (re)load any new or
+        /// version-bumped stems, live, without touching current playback. The
+        /// controller's "⟳ CSV → ALL" button broadcasts this.</summary>
+        public void ReloadConfig()
+        {
+            if (reloadRoutine != null)
+            {
+                Debug.LogWarning("[JoanAudio] Reload already in progress — ignoring.");
+                return;
+            }
+            reloadRoutine = StartCoroutine(ReloadRoutine());
+        }
+
+        Coroutine reloadRoutine;
+
+        IEnumerator ReloadRoutine()
+        {
+            Debug.Log("[JoanAudio] Reload: re-fetching cue CSV…");
+
+            // Remember what we had so only new or version-changed stems reload.
+            var before = new Dictionary<string, int>();
+            if (Config != null)
+                foreach (var kv in Config.AllUniqueStems()) before[kv.Key] = kv.Value;
+
+            yield return LoadConfigRoutine();
+
+            int refreshed = 0;
+            if (Config != null && Loader != null && PreloadAll)
+            {
+                foreach (var kv in Config.AllUniqueStems())
+                {
+                    bool have = clipCache.ContainsKey(kv.Key);
+                    bool changed = before.TryGetValue(kv.Key, out var oldV) && oldV != kv.Value;
+                    if (have && !changed) continue;
+                    var fileName = kv.Key;
+                    var version = kv.Value;
+                    yield return Loader.LoadStem(fileName, version,
+                        clip => { clipCache[fileName] = clip; refreshed++; },
+                        err => Debug.LogError($"[JoanAudio] Reload stem error {fileName}: {err}"));
+                }
+            }
+
+            Debug.Log($"[JoanAudio] Reload complete: {(Config != null ? Config.Cues.Count : 0)} cues, {refreshed} stems (re)loaded.");
+            reloadRoutine = null;
+        }
+
         IEnumerator LoadConfigRoutine()
         {
             if (CsvAsset != null)

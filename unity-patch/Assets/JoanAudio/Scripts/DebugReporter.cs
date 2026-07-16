@@ -36,13 +36,21 @@ namespace JoanAudio
     public static class DebugReporter
     {
         const int DebugPort = 9002;
-        const float HeartbeatSeconds = 1f;   // roster dot: green < 3 s
-        const int MaxLogsPerSecond = 10;     // forwarded-log rate limit
+        const float HeartbeatSeconds = 1f;        // active rate (roster dot: green < 3 s)
+        const float SafetyHeartbeatSeconds = 5f;  // always-on safety-net rate
+        const int MaxLogsPerSecond = 10;          // forwarded-log rate limit
         const int MaxLogChars = 200;
         const int HudLines = 12;
 
         public static bool Enabled { get; private set; }
         public static bool HeartbeatOn { get; private set; }
+
+        /// <summary>Show safety net: once a master is known, send a low-rate
+        /// (5 s) heartbeat even with all debug toggles off, so the operator
+        /// roster always answers "is headset 3 alive?". One small packet per
+        /// 5 s per device; set false (OscCueReceiver inspector) to return to
+        /// strictly-zero traffic when debug is off.</summary>
+        public static bool SafetyHeartbeat = true;
 
         /// <summary>Roster name for this device. Defaults to the device name;
         /// set before enabling if you want something friendlier.</summary>
@@ -67,6 +75,7 @@ namespace JoanAudio
             controller = sceneController;
             if (string.IsNullOrEmpty(DeviceId))
                 DeviceId = SystemInfo.deviceName.Replace(' ', '-');
+            Host.Ensure();   // host always runs so the safety heartbeat can tick
         }
 
         /// <summary>/debug/enable [0|1] — master switch for all reporting.</summary>
@@ -115,8 +124,13 @@ namespace JoanAudio
 
         internal static void HeartbeatTick()
         {
-            if (!HeartbeatOn) return;
-            if (MasterClock.LocalNow - LastHeartbeatAt < HeartbeatSeconds) return;
+            // Active mode: 1 Hz. Safety net: 5 s once a master is known, even
+            // with every toggle off — the roster keeps answering during a show.
+            float interval;
+            if (HeartbeatOn) interval = HeartbeatSeconds;
+            else if (SafetyHeartbeat && !string.IsNullOrEmpty(MasterClock.MasterIp)) interval = SafetyHeartbeatSeconds;
+            else return;
+            if (MasterClock.LocalNow - LastHeartbeatAt < interval) return;
             LastHeartbeatAt = MasterClock.LocalNow;
             string lastCue = controller != null && controller.LastCueId != null ? controller.LastCueId : "";
             int stems = controller != null ? controller.ActivePlayers.Count : 0;

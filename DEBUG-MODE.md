@@ -5,8 +5,11 @@ debug/observability layer built on top of the audio sync system
 (`AUDIO-SYNC-HANDOFF.md`): devices report back to the operator, live.
 
 Everything is **opt-in and OFF by default** — until an operator flips the
-toggle there are no sockets, no log hooks, no per-frame work. Debug off =
-byte-identical show behavior.
+toggle there are no log hooks and no verbose traffic. **One deliberate
+exception:** a low-rate **safety heartbeat** (one small packet per 5 s per
+device, once a master is known) keeps the roster answering "is headset 3
+alive?" even with every toggle off. Untick **Always On Safety Heartbeat** on
+the `OscCueReceiver` inspector for strictly-zero-traffic behavior.
 
 ## What it solves
 
@@ -32,6 +35,7 @@ so the controller computes true send→receive margins per device per cue.
 | `/debug/heartbeat` | `0\|1` | 1 Hz roster beacon (independent toggle — roster without log spam) |
 | `/audio/test` | `1` (+ `playAt` appended in sync mode) | Generated triple beep, outside the cue system |
 | `/audio/mute` | `0\|1` | Master mute via `AudioListener.volume` |
+| `/audio/reload` | `1` (+ `playAt` in sync mode, deduped) | Re-fetch the cue CSV live; loads new/version-bumped stems without touching playback ("⟳ CSV → ALL" button) |
 
 ### Reports — devices → server :9002 (only while enabled)
 
@@ -39,7 +43,7 @@ so the controller computes true send→receive margins per device per cue.
 |---|---|---|
 | `/debug/hello` | `id, kind` | Announce on enable (`headset` / `editor` / `performer`) |
 | `/debug/rx` | `id, cueId, recvMaster:d, playAt:d` | Cue received; controller shows margin `(playAt−recvMaster)`; `playAt=0` = immediate path |
-| `/debug/hb` | `id, masterTime:d, lastCue, stems:i, offsetMs:d` | Heartbeat: liveness + clock health + what's playing (`offsetMs=−1` when unsynced) |
+| `/debug/hb` | `id, masterTime:d, lastCue, stems:i, offsetMs:d` | Heartbeat: liveness + clock health + what's playing (`offsetMs=−1` when unsynced). Rate: 1 Hz active, 5 s safety mode |
 | `/debug/log` | `id, masterTime:d, level, msg` | Warnings/errors + `[JoanAudio]` logs, rate-limited 10/s/device |
 
 ## The three surfaces
@@ -120,13 +124,24 @@ so the controller computes true send→receive margins per device per cue.
 - Mute round-trip: `AudioListener.volume` 0 → 1
 - **Debug off: a fired cue produced zero debug events** (the rollback guarantee)
 
+## Panel views (D1, extended 2026-07-15 evening)
+
+- **CUE ACKS** — per-cue delivery rollup: `✔ cue A_SQ201 → 3/3 received
+  (401 / 399 / 404ms)`. Scheduled cues group by their exact `playAt`
+  (3× sends collapse to one row); immediate cues bucket by cueId in a 2 s
+  window. Amber `…` until every roster device has reported.
+- **Roster clock health** — instead of the raw epoch-relative `offsetMs`
+  (meaningless to read), the roster shows `clock ✓ Δ0.2ms` (offset drift
+  between heartbeats — small = stable) or `clock ⚠ unsynced`. Dot thresholds
+  account for the 5 s safety rate: 🟢 <7 s, 🟡 <15 s, 🔴 beyond.
+
 ## Known notes / small follow-ups
 
-- `offsetMs` in heartbeats is the raw epoch-relative clock offset (matches the
-  tablets) — a huge number that means "synced", not latency. Cosmetic D1 tweak:
-  display it as sync-health rather than a raw ms figure.
-- MainScene logs "2 audio listeners" every frame (pre-existing, likely the new
-  avatar rig) — it floods the console and the debug log's 10/s budget. Cheap fix
-  worth doing before rehearsals.
-- Optional idea from the design review: a very low-rate always-on heartbeat as
-  a show safety net (roster without debug mode). One-line change device-side.
+- Tablet parity for the safety heartbeat: `PerformerService.kt` still only
+  heartbeats while debug is enabled — mirror the Unity 5 s safety-net there.
+- The Kotlin/Gradle changes (notification Stop action, signing scaffold) were
+  made without a local Gradle toolchain — one `assembleDebug` in Android
+  Studio to confirm before shipping a build.
+- ~~offsetMs roster display~~ · ~~"2 audio listeners" spam~~ ·
+  ~~always-on heartbeat~~ · ~~/audio/reload in Unity~~ · ~~per-cue ack
+  summary~~ — **all done 2026-07-15 evening.**
