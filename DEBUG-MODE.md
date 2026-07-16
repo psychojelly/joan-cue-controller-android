@@ -49,6 +49,19 @@ so the controller computes true send→receive margins per device per cue.
    🔴 liveness dot, clock offset, last cue, last-seen age), color-coded message
    log with master-clock stamps, per-cue rx lines with margins, and the
    **SYNC TEST** row (test tone + mute buttons).
+
+   **Timestamps — sent *and* reply, one scale.** Every line carries an `mt`
+   (master-clock seconds). Control messages the operator fires log a
+   `SENT …` line stamped with the server's send time (the server is the clock
+   master, so it returns `sentAt` — and `playAt` for scheduled sends — in the
+   `/send` response); each device's reply logs its own `RX …`/`log` line at the
+   time the server received it. So a single cue reads as one `SENT` line
+   followed by each device's `RX` a few ms later, directly comparable:
+
+   ```
+   mt 462403.218  SENT /audio/test → audience  playAt 462403.618 (+400ms)
+   mt 462403.218  RX USER  cue TEST-TONE  margin 401ms
+   ```
 2. **Unity headsets**: `DebugReporter.cs` sends the reports (self-bootstrapping,
    no scene changes); `DebugHud.cs` draws the in-glasses overlay — device id,
    master IP, sync state + offset, heartbeat status, recent cue/log feed.

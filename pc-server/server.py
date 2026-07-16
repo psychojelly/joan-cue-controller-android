@@ -253,6 +253,8 @@ class Handler(BaseHTTPRequestHandler):
         schedule = lead_ms is not None and str(addr).startswith("/audio/")
 
         try:
+            play_at = None
+            sent_at = master_now()   # master-clock send time (for the debug logger)
             if schedule:
                 # Announce the master's IP so receivers (Unity) know where to
                 # send /clock/ping — the tablet app auto-learns from the packet
@@ -260,7 +262,8 @@ class Handler(BaseHTTPRequestHandler):
                 my_ip = local_ip_for(host)
                 if my_ip:
                     send_osc(host, port, "/clock/master", [my_ip])
-                play_at = master_now() + float(lead_ms) / 1000.0
+                sent_at = master_now()
+                play_at = sent_at + float(lead_ms) / 1000.0
                 for i in range(3):
                     send_osc(host, port, addr, [value, play_at])
                     if i < 2:
@@ -269,7 +272,12 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 udp_client.SimpleUDPClient(host, port).send_message(addr, value)
                 print(f"  OSC -> {host}:{port}  {addr}  {value!r}")
-            code, payload = 200, b'{"ok":true}'
+            # sentAt/playAt are master-clock seconds so the controller's debug
+            # log can stamp sent messages on the same scale as device replies.
+            resp = {"ok": True, "sentAt": sent_at}
+            if play_at is not None:
+                resp["playAt"] = play_at
+            code, payload = 200, json.dumps(resp).encode("utf-8")
         except Exception as e:
             print(f"  OSC send FAILED ({host}:{port}): {e}")
             code, payload = 500, b'{"ok":false}'

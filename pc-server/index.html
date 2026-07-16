@@ -1787,7 +1787,13 @@ document.getElementById('ip-import-file').addEventListener('change', e => {
 // ════════════════════════════════════════════════════════════════════════════
 // OSC send (via local proxy on :8765) — fans out to every saved IP.
 // ════════════════════════════════════════════════════════════════════════════
+// Master-clock send metadata from the most recent sendOsc() call. The server
+// (the clock master) returns sentAt/playAt in master-clock seconds; the debug
+// logger stamps sent messages with it so send and reply share one time scale.
+let lastSendMeta = { sentAt: undefined, playAt: undefined };
+
 async function sendOsc(address, value) {
+  lastSendMeta = { sentAt: undefined, playAt: undefined };
   const ips = loadIPs();
   const port = parseInt(document.getElementById('port').value, 10);
   if (!ips.length) { setStatus('No IPs configured.', 'err'); return false; }
@@ -1812,7 +1818,16 @@ async function sendOsc(address, value) {
       body: JSON.stringify(payload),
       signal: ctrl.signal,
     })
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return host; })
+      .then(async r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        // Capture the server's master-clock send time from the first reply.
+        try {
+          const j = await r.json();
+          if (j && j.sentAt !== undefined && lastSendMeta.sentAt === undefined)
+            lastSendMeta = { sentAt: j.sentAt, playAt: j.playAt };
+        } catch (e) { /* older server without sentAt — logger just omits it */ }
+        return host;
+      })
       .catch(err => { throw err; })           // keep rejection within allSettled
       .finally(() => clearTimeout(timer));
   }));
@@ -3009,31 +3024,37 @@ if (loadSettings().csvUrl) {
     open = false; panel.style.display = 'none';
   });
 
-  document.getElementById('dbg-on').addEventListener('change', e => {
-    sendOsc('/debug/enable', e.target.checked ? 1 : 0);
-    addLine('ctl', `debug reporting ${e.target.checked ? 'ON' : 'OFF'} → audience`);
+  // Every control line is stamped with the server's master-clock send time
+  // (lastSendMeta.sentAt), so an operator reads sent → reply on one time scale:
+  // a SENT line, then each device's RX line at its own mt a few ms later.
+  document.getElementById('dbg-on').addEventListener('change', async e => {
+    await sendOsc('/debug/enable', e.target.checked ? 1 : 0);
+    addLine('ctl', `SENT /debug/enable ${e.target.checked ? 1 : 0} → audience`, lastSendMeta.sentAt);
   });
-  document.getElementById('dbg-hb').addEventListener('change', e => {
-    sendOsc('/debug/heartbeat', e.target.checked ? 1 : 0);
-    addLine('ctl', `heartbeat ${e.target.checked ? 'ON' : 'OFF'} → audience`);
+  document.getElementById('dbg-hb').addEventListener('change', async e => {
+    await sendOsc('/debug/heartbeat', e.target.checked ? 1 : 0);
+    addLine('ctl', `SENT /debug/heartbeat ${e.target.checked ? 1 : 0} → audience`, lastSendMeta.sentAt);
   });
 
   // Sync test utilities. /audio/test rides sendOsc's normal sync-mode path
   // (leadMs + playAt + 3x, deduped device-side), so the beeps are scheduled
   // on the master clock exactly like a real cue — an audible sync check.
-  document.getElementById('dbg-test').addEventListener('click', () => {
-    sendOsc('/audio/test', 1);
-    addLine('ctl', 'test tone → audience');
+  document.getElementById('dbg-test').addEventListener('click', async () => {
+    await sendOsc('/audio/test', 1);
+    const at = lastSendMeta.playAt !== undefined
+      ? `  playAt ${lastSendMeta.playAt.toFixed(3)} (+${((lastSendMeta.playAt - lastSendMeta.sentAt) * 1000).toFixed(0)}ms)`
+      : '';
+    addLine('ctl', `SENT /audio/test → audience${at}`, lastSendMeta.sentAt);
   });
   let dbgMuted = false;
   const muteBtn = document.getElementById('dbg-mute');
-  muteBtn.addEventListener('click', () => {
+  muteBtn.addEventListener('click', async () => {
     dbgMuted = !dbgMuted;
-    sendOsc('/audio/mute', dbgMuted ? 1 : 0);
+    await sendOsc('/audio/mute', dbgMuted ? 1 : 0);
     muteBtn.textContent = dbgMuted ? '🔊 unmute' : '🔇 mute';
     muteBtn.style.background = dbgMuted ? '#4a1f28' : 'none';
     muteBtn.style.borderColor = dbgMuted ? '#8a3a48' : '#2a2d3a';
-    addLine('ctl', `${dbgMuted ? 'MUTE' : 'unmute'} → audience`);
+    addLine('ctl', `SENT /audio/mute ${dbgMuted ? 1 : 0} → audience`, lastSendMeta.sentAt);
   });
 
   function esc(s) { return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
