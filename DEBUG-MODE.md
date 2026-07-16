@@ -178,5 +178,10 @@ commits and can be deleted whenever.)
 - ~~offsetMs roster display~~ · ~~"2 audio listeners" spam~~ ·
   ~~always-on heartbeat~~ · ~~/audio/reload in Unity~~ · ~~per-cue ack
   summary~~ — **all done 2026-07-15 evening.**
-- Remaining: **multi-device verification on real headsets** (scheduled), and
-  sync **Phase 2 (position servo)** as the only unbuilt design item.
+- Remaining: **multi-device verification on real headsets** (scheduled).
+  Sync **Phase 2 (position servo) is rejected as designed** for this
+  production (short stems re-anchor at every cue start; pitch-based rate
+  nudges are audible on sustained sung material) — see the decision note in
+  `AUDIO-SYNC-HANDOFF.md`. An optional recovery-only "Phase 2-lite" (silent
+  device restarts its stem at the aged position; playing audio never
+  touched) awaits the real-headset miss-rate data from the CUE ACKS panel.

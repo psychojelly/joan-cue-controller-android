@@ -185,6 +185,27 @@ visual cue first) — scheduled starts should be unaffected.
 
 ### Phase 2 — Position servo (drift + self-healing)
 
+> **DECISION 2026-07-15 (Dom): rejected as designed for this production.**
+> Two show-specific reasons:
+> 1. **The stems are short.** Drift accumulates with time playing, and
+>    Phases 0+1 already re-anchor every device sample-accurately at every
+>    cue start — short tracks never live long enough to drift audibly
+>    before the next start resets everyone.
+> 2. **The rate-nudge is not inaudible on this material.** Unity's
+>    `source.pitch` resamples (speed *and* pitch together): ±1% ≈ 17 cents,
+>    which is catchable on sustained sung notes and drones against a live
+>    singer. The "inaudible glide" assumption comes from percussive
+>    beat-matching; opera stems are the worst case for it.
+>
+> **Optional fallback — "Phase 2-lite" (recovery only):** keep the master's
+> 1 Hz position broadcast, but a device may act **only when a stem it
+> should be playing isn't playing at all** (reboot / fully missed cue) —
+> start it at the age-adjusted position. Playing audio is never touched:
+> no nudges, no seeks, ever. Zero audible risk; covers the one scary live
+> scenario (a silent headset mid-scene). Build only if real-headset testing
+> shows cue misses beyond the 3× redundancy — the CUE ACKS panel gives the
+> miss rate directly. Everything below is kept for reference.
+
 **Master (this app / server.py):** keep a **show clock** per running stem:
 on firing a cue, record `(stem, startedAtMasterTime)`. Broadcast to all target
 IPs 1–2×/sec: `/sync [stem, expectedPosition, masterNow]`.
