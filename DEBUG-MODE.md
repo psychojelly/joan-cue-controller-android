@@ -98,12 +98,16 @@ so the controller computes true send→receive margins per device per cue.
 
 ## Where everything lives (handoff)
 
-### Unity repo (`annehiatt/joan-of-the-city-xreal`) — branches, merge in order
+### Unity repo (`annehiatt/joan-of-the-city-xreal`) — **merged to `main`** (2026-07-15, `8ef3ad2..b3d13ff`)
 
-| Branch | Commits | Contents |
-|---|---|---|
-| `audio-sync-patch` | `9accf8d` | Sync Phases 0+1: `MasterClock.cs` (new), `playAt` handling + dedupe in `OscCueReceiver.cs`, `TriggerCueScheduled` in `AudioSceneController.cs`, `PlayScheduled` in `AudioStemPlayer.cs` |
-| `debug-observability` | `776d754`, `3b021ed` | D2+D3 + test utils: `DebugReporter.cs` (new), `DebugHud.cs` (new), `TestTone.cs` (new), debug binds + mute/test handlers in `OscCueReceiver.cs`, `OffsetMs` accessor in `MasterClock.cs` |
+| Commits | Contents |
+|---|---|
+| `9accf8d` | Sync Phases 0+1: `MasterClock.cs` (new), `playAt` handling + dedupe in `OscCueReceiver.cs`, `TriggerCueScheduled` in `AudioSceneController.cs`, `PlayScheduled` in `AudioStemPlayer.cs` |
+| `776d754`, `3b021ed` | D2+D3 + test utils: `DebugReporter.cs` (new), `DebugHud.cs` (new), `TestTone.cs` (new), debug binds + mute/test handlers in `OscCueReceiver.cs`, `OffsetMs` accessor in `MasterClock.cs` |
+| `b3d13ff` | `/audio/reload`, always-on 5 s safety heartbeat (inspector kill-switch), duplicate-AudioListener fix in MainScene |
+
+(The `audio-sync-patch` / `debug-observability` branches point at the same
+commits and can be deleted whenever.)
 
 ### Cue-controller repo (`psychojelly/joan-cue-controller-android`) — on `main`
 

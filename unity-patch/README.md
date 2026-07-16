@@ -3,9 +3,10 @@
 > **Update 2026-07-15 (evening):** this folder now also carries the Unity side
 > of the debug observability layer (D2+D3): `DebugReporter.cs` + `DebugHud.cs`
 > (new), plus debug hooks in `OscCueReceiver.cs` and an `OffsetMs` accessor in
-> `MasterClock.cs`. Both features are live on branches of the main Unity repo
-> (`audio-sync-patch`, `debug-observability`) — if you take those branches you
-> don't need this folder. Controller/server side is D0+D1 in this repo.
+> `MasterClock.cs`. **Both features are merged to `main` of the Unity repo**
+> (2026-07-15, `8ef3ad2..b3d13ff`) — a current checkout doesn't need this
+> folder; it remains as the standalone-copy fallback and docs anchor.
+> Controller/server side is D0+D1 in this repo.
 > Enable from the controller's 🐞 panel: `/debug/enable 1`, `/debug/heartbeat 1`.
 > Everything defaults OFF; with debug off, behavior is byte-identical.
 
