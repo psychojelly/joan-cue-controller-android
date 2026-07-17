@@ -27,6 +27,7 @@ namespace JoanAudio
 
         GameObject root;
         Text headerText, bodyText, footerText;
+        Text[] axisLabels;                // graph y-axis values: max, half, 0
         RawImage graphImage;
         Texture2D graphTex;
         Color32[] clearBuf;
@@ -98,8 +99,20 @@ namespace JoanAudio
             else
             {
                 var g = MakeRect("graph", rt, new Vector2(0f, 0f), new Vector2(1f, 1f),
-                    new Vector2(14f, 44f), new Vector2(-64f, -70f));
+                    new Vector2(14f, 44f), new Vector2(-84f, -70f));
                 graphImage = g.gameObject.AddComponent<RawImage>();
+
+                // y-axis value labels in the reserved right margin, aligned to
+                // the gridlines (top = max, middle = half, bottom = 0)
+                axisLabels = new Text[3];
+                var axisAnchors = new[] { new Vector2(1f, 1f), new Vector2(1f, 0.5f), new Vector2(1f, 0f) };
+                for (int i = 0; i < 3; i++)
+                {
+                    axisLabels[i] = MakeText($"axis{i}", g, font, 16, FontStyle.Normal,
+                        new Color(0.85f, 0.92f, 1f, 0.8f), TextAnchor.MiddleLeft,
+                        axisAnchors[i], axisAnchors[i],
+                        new Vector2(4f, i == 2 ? 0f : -10f), new Vector2(72f, i == 0 ? 0f : 10f));
+                }
                 if (graphTex == null)
                 {
                     graphTex = new Texture2D(TexW, TexH, TextureFormat.RGBA32, false);
@@ -156,7 +169,7 @@ namespace JoanAudio
                 : $"batt {batt:F0}%{(DebugReporter.BatteryCharging ? "⚡" : "")}";
 
             headerText.text =
-                $"{DebugReporter.DeviceId}   master {master}   " +
+                $"{DebugReporter.DeviceId} ({DebugReporter.LocalIp})   master {master}   " +
                 $"{DebugReporter.Fps:F0}fps   {battStr}\n" +
                 $"{(synced ? "clock synced" : "clock NOT SYNCED")}   hb {hb}   {wifi}";
 
@@ -180,12 +193,17 @@ namespace JoanAudio
             if (pts.Count < 2)
             {
                 footerText.text = "waiting for scheduled cues… (fire a test tone)";
+                for (int i = 0; i < 3; i++) axisLabels[i].text = "";
                 graphTex.Apply(false);
                 return;
             }
 
             float max = GraphMaxFloorMs;
             for (int i = 0; i < pts.Count; i++) if (pts[i] > max) max = pts[i];
+
+            axisLabels[0].text = $"{max:F0}ms";
+            axisLabels[1].text = $"{max / 2f:F0}ms";
+            axisLabels[2].text = "0";
 
             var grid = new Color32(255, 255, 255, 46);
             for (int g = 0; g <= 2; g++)

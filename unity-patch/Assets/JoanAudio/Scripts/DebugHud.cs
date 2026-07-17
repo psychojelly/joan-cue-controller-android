@@ -52,7 +52,7 @@ namespace JoanAudio
             string battStr = batt < 0f ? "batt —"
                 : $"batt {batt:F0}%{(DebugReporter.BatteryCharging ? "⚡" : "")}";
             GUI.Label(new Rect(x, y, w, lineH),
-                $"🐞 {DebugReporter.DeviceId}   master {master}   " +
+                $"🐞 {DebugReporter.DeviceId} ({DebugReporter.LocalIp})   master {master}   " +
                 $"{DebugReporter.Fps:F0}fps   {battStr}", header);
             y += lineH;
             GUI.Label(new Rect(x, y, w, lineH),

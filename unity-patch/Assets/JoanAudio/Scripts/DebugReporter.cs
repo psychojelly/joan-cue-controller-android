@@ -160,6 +160,31 @@ namespace JoanAudio
         // is too hacky — instead a separate charging flag char in the panel;
         // here we just report level and let consumers format it.
         internal static float Fps { get; private set; }
+
+        // This device's own LAN IP — resolved by "connecting" a throwaway UDP
+        // socket toward the master (no packet is sent; the OS just picks the
+        // outbound interface) and reading the local end. Cached once found.
+        static string localIp;
+        internal static string LocalIp
+        {
+            get
+            {
+                if (!string.IsNullOrEmpty(localIp)) return localIp;
+                try
+                {
+                    using (var s = new System.Net.Sockets.Socket(
+                        System.Net.Sockets.AddressFamily.InterNetwork,
+                        System.Net.Sockets.SocketType.Dgram,
+                        System.Net.Sockets.ProtocolType.Udp))
+                    {
+                        s.Connect(MasterClock.MasterIp ?? "8.8.8.8", 65530);
+                        localIp = ((System.Net.IPEndPoint)s.LocalEndPoint).Address.ToString();
+                    }
+                }
+                catch { return "?"; }   // retry next read — don't cache failure
+                return localIp;
+            }
+        }
         internal static float BatteryPct =>
             SystemInfo.batteryLevel < 0f ? -1f : SystemInfo.batteryLevel * 100f;
         internal static bool BatteryCharging =>
