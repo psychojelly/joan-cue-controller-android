@@ -144,6 +144,18 @@ class PerformerService : Service() {
             ?.hostAddress?.substringAfterLast('.') ?: "0"
     } catch (e: Exception) { "0" }
 
+    /** Battery % (0-100) or -1f if unreadable — heartbeat vitals. */
+    private fun batteryPct(): Float = try {
+        val bm = getSystemService(Context.BATTERY_SERVICE) as android.os.BatteryManager
+        val pct = bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)
+        if (pct in 0..100) pct.toFloat() else -1f
+    } catch (_: Exception) { -1f }
+
+    private fun batteryCharging(): Boolean = try {
+        val bm = getSystemService(Context.BATTERY_SERVICE) as android.os.BatteryManager
+        bm.isCharging
+    } catch (_: Exception) { false }
+
     /** Fire-and-forget OSC to the master's :9002 debug listener. */
     private fun sendDebug(addr: String, vararg args: Any) {
         val master = MasterClock.master ?: return
@@ -176,11 +188,16 @@ class PerformerService : Service() {
             while (running) {
                 if (MasterClock.master != null && (heartbeatEnabled || SAFETY_HEARTBEAT)) {
                     val eng = engine
+                    // Trailing vitals (fps, battery%, charging) — parity with the
+                    // Unity heartbeat. A background service has no renderer, so
+                    // fps is -1 (consumers hide negatives); battery is the useful
+                    // one for performer tablets.
                     sendDebug("/debug/hb", deviceId,
                         MasterClock.now() ?: -1.0,
                         eng?.lastCueId ?: "",
                         eng?.activeStems()?.size ?: 0,
-                        MasterClock.offsetMs ?: -1.0)
+                        MasterClock.offsetMs ?: -1.0,
+                        -1.0f, batteryPct(), if (batteryCharging()) 1 else 0)
                 }
                 Thread.sleep(if (heartbeatEnabled) 1000L else 5000L)
             }

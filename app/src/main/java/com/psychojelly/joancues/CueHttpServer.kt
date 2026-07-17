@@ -64,6 +64,12 @@ class CueHttpServer(private val context: Context, port: Int = PORT) : NanoHTTPD(
                 put("seq", debugSeq); put("now", masterNow()); put("events", arr)
             }.toString()
         }
+
+        // ---- Headset snapshots (JPEG over HTTP — too big for OSC/UDP) --------
+        // Latest per device id, in memory. Parity with server.py.
+        private val snapshotLock = Any()
+        private val snapshots = HashMap<String, ByteArray>()
+        private const val SNAPSHOT_MAX = 8_000_000
     }
 
     override fun serve(session: IHTTPSession): Response {
@@ -75,6 +81,38 @@ class CueHttpServer(private val context: Context, port: Int = PORT) : NanoHTTPD(
                     cors(newFixedLengthResponse(Response.Status.OK, "application/json", debugEventsJson(since)))
                 }
                 session.method == Method.POST && session.uri == "/send" -> handleSend(session)
+                session.method == Method.GET && session.uri == "/debug/snapshot" -> {
+                    val id = session.parms["id"] ?: ""
+                    val jpg = synchronized(snapshotLock) { snapshots[id] }
+                    if (jpg == null)
+                        cors(newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "No snapshot for that device yet"))
+                    else
+                        cors(newFixedLengthResponse(Response.Status.OK, "image/jpeg",
+                            jpg.inputStream(), jpg.size.toLong()).apply {
+                            addHeader("Cache-Control", "no-store")
+                        })
+                }
+                session.method == Method.POST && session.uri == "/debug/snapshot" -> {
+                    val id = session.parms["id"]?.ifEmpty { null } ?: "device"
+                    val length = session.headers["content-length"]?.toIntOrNull() ?: 0
+                    if (length <= 0 || length > SNAPSHOT_MAX) {
+                        cors(newFixedLengthResponse(Response.Status.BAD_REQUEST, "application/json",
+                            "{\"ok\":false,\"error\":\"bad snapshot size\"}"))
+                    } else {
+                        val jpg = ByteArray(length)
+                        var read = 0
+                        while (read < length) {
+                            val n = session.inputStream.read(jpg, read, length - read)
+                            if (n <= 0) break
+                            read += n
+                        }
+                        synchronized(snapshotLock) { snapshots[id] = jpg }
+                        debugAdd("/debug/snapshot", listOf(id, jpg.size),
+                            session.remoteIpAddress ?: "?")
+                        cors(newFixedLengthResponse(Response.Status.OK, "application/json",
+                            "{\"ok\":true,\"bytes\":${jpg.size}}"))
+                    }
+                }
                 else -> serveAsset(session.uri)
             }
         } catch (e: Exception) {
@@ -109,8 +147,9 @@ class CueHttpServer(private val context: Context, port: Int = PORT) : NanoHTTPD(
         val leadMs = if (body.has("leadMs")) body.optDouble("leadMs", 400.0) else null
         val scheduled = leadMs != null && addr.startsWith("/audio/")
 
+        val sentAt = masterNow()
         if (scheduled) {
-            val playAt = masterNow() + leadMs!! / 1000.0
+            val playAt = sentAt + leadMs!! / 1000.0
             val packet = OscEncoder.encode(addr, listOf(value, playAt))
             DatagramSocket().use { socket ->
                 // Announce the master's IP so receivers (Unity) know where to
@@ -134,7 +173,15 @@ class CueHttpServer(private val context: Context, port: Int = PORT) : NanoHTTPD(
             Log.i(TAG, "OSC -> $host:$port  $addr  $value")
         }
 
-        return cors(newFixedLengthResponse(Response.Status.OK, "application/json", "{\"ok\":true}"))
+        // Parity with server.py: return the master-clock send time (and playAt
+        // for scheduled sends) so the page can stamp its SENT lines on the same
+        // scale as the devices' replies.
+        val resp = JSONObject().apply {
+            put("ok", true)
+            put("sentAt", sentAt)
+            if (scheduled) put("playAt", sentAt + leadMs!! / 1000.0)
+        }
+        return cors(newFixedLengthResponse(Response.Status.OK, "application/json", resp.toString()))
     }
 
     /** server.py's type-preservation rules. */
