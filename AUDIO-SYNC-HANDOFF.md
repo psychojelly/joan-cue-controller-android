@@ -6,13 +6,30 @@ sync, driven from the operator cue tablet.
 **Written to be implemented with Claude Code** — each phase ends with a
 suggested prompt. Phases are independently shippable, in order.
 
-> **Status update:** Phases 0 + 1 are now **implemented in the tablet/web
-> stack** as a test version — `server.py` + controller (sync-mode toggle in
-> the OSC settings) and this app (operator sends scheduled cues; performer
-> mode syncs its clock, dedupes the 3× sends, schedules starts, seeks in when
-> late). **The Unity receiver is the remaining piece** — the contracts below
-> are now demonstrated, not just proposed. Toggle OFF = old behavior
-> everywhere.
+> **Status update (2026-07-16/17): the full system is implemented and
+> verified on real hardware** — Unity receiver included (merged to Unity
+> `main`), measured on a Beam Pro X4000 + XREAL glasses over private WiFi:
+>
+> - Clock sync + scheduled starts work end-to-end; clean solo cue transit
+>   ~16 ms, margins land within a few ms of the lead.
+> - **Wi-Fi power-save was the latency villain**: periodic ~35–40 s transit
+>   spikes (up to 674 ms measured). A `WIFI_MODE_FULL_LOW_LATENCY` lock in
+>   the Unity app (`WifiLockManager.cs`, auto-on, operator-toggleable via
+>   `/debug/wifilock`) eliminates them — worst case drops to **65 ms**,
+>   0% spikes over a 90 s A/B. Requires `WAKE_LOCK` (manifest fragment in
+>   `Assets/Plugins/Android/`).
+> - **Recommended show lead: ~200 ms with the lock held** (3× headroom over
+>   the measured worst case). Re-measure at the venue with the 🐞 panel's
+>   delay graph (see `DEBUG-MODE.md`).
+> - Known constraint: the current scene runs 17–25 fps on the Beam Pro —
+>   playback is audio-thread-exact regardless, but cue *processing* picks up
+>   to a frame (~60 ms) of jitter until the scene is optimized.
+>
+> Phase 2 (position servo) remains **rejected as designed** for this
+> production — see §Phase 2. Toggle OFF = old behavior everywhere.
+>
+> *(Earlier status, 2026-07-14: Phases 0 + 1 implemented in the tablet/web
+> stack; Unity receiver was the remaining piece.)*
 
 ---
 

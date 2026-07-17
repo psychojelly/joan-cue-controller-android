@@ -1,8 +1,13 @@
 # Debug Mode — Observability for Joan of the City
 
-**Status: implemented and verified in-editor (2026-07-15).** This documents the
-debug/observability layer built on top of the audio sync system
-(`AUDIO-SYNC-HANDOFF.md`): devices report back to the operator, live.
+**Status: implemented and verified on real hardware (2026-07-16/17, Beam Pro
+X4000 + XREAL glasses over WiFi).** This documents the debug/observability
+layer built on top of the audio sync system (`AUDIO-SYNC-HANDOFF.md`):
+devices report back to the operator, live. Headline results from the
+real-hardware pass: the **Wi-Fi low-latency lock cut worst-case cue transit
+from 674 ms to 65 ms** (0% spikes with the lock, 21% without), the in-glasses
+HUD now renders in stereo (world-space canvas), and per-device vitals
+(fps/battery), snapshots, and wireless video recording are live.
 
 Everything is **opt-in and OFF by default** — until an operator flips the
 toggle there are no log hooks and no verbose traffic. **One deliberate
@@ -91,13 +96,18 @@ the SNAPSHOTS strip (`GET /debug/video`).
    mt 462403.218  RX USER  cue TEST-TONE  margin 401ms
    ```
 2. **Unity headsets**: `DebugReporter.cs` sends the reports (self-bootstrapping,
-   no scene changes); `DebugHud.cs` draws the in-glasses overlay, **controlled
-   separately from reporting via `/debug/hud`** — mode 1 is the message feed
-   (device id, master IP, sync state, heartbeat, recent cue/log lines), mode 2
-   is a **line graph of recent scheduled-cue margins** ("how much headroom
-   does THIS headset have," visible in the glasses). A stagehand can have the
-   HUD on with zero debug network traffic, or the operator can report without
-   cluttering the glasses. Immediate-mode GUI: no Canvas/TMP dependency.
+   no scene changes). The in-glasses overlay is **controlled separately from
+   reporting via `/debug/hud`** — mode 1 is the message feed (device id + its
+   own IP, master IP, fps, battery, sync state, heartbeat, wifi-lock state,
+   recent cue/log lines), mode 2 is a **line graph of recent scheduled-cue
+   margins with axis values** ("how much headroom does THIS headset have,"
+   visible in the glasses). Two renderers share the same data:
+   `DebugHudWorld.cs` (device) builds a **world-space canvas parented to the
+   XR camera** — head-locked, 1.4 m ahead, below eye line — because the
+   stereo compositor never shows the flat OnGUI layer; `DebugHud.cs` (OnGUI)
+   covers the editor / flat screens. A stagehand can have the HUD on with
+   zero debug network traffic, or the operator can report without cluttering
+   the glasses.
 3. **Performer tablets**: `PerformerService.kt` sends the same `/debug/*`
    reports, so headsets and tablets share one roster.
 
@@ -126,6 +136,15 @@ the SNAPSHOTS strip (`GET /debug/video`).
 
 ## Where everything lives (handoff)
 
+### Unity repo — 2026-07-16/17 wave, **merged to `main`** (`1f5a637..5b39551`)
+
+| Commits | Contents |
+|---|---|
+| `4d195e1`, `f768b54` | **Wi-Fi low-latency lock**: `WifiLockManager.cs` (new — `WIFI_MODE_FULL_LOW_LATENCY` via AndroidJavaObject, auto-acquired on start, `/debug/wifilock 0\|1` toggle) + `Assets/Plugins/Android/JoanAudio.androidlib/` manifest fragment adding the required `WAKE_LOCK` permission |
+| `eb1b702` | **World-space XR HUD**: `DebugHudWorld.cs` (new) — the in-glasses HUD finally visible in stereo; OnGUI HUD becomes editor-only |
+| `3b81f0b`, `7d3b4eb` | **Heartbeat vitals** (fps EMA + battery + charging on `/debug/hb`, shown in both HUD headers) · HUD graph axis values + device's own IP in the header |
+| `bf8ccca`, `5b39551` | **Snapshots**: `Snapshot.cs` (new) — `/debug/snap` renders the camera to a 1280×720 JPEG and HTTP-POSTs it to the server. Two real-hardware fixes: URP needs `RenderPipeline.SubmitRenderRequest` (manual `Camera.Render()` unsupported), and upload uses `System.Net` on a worker thread (UnityWebRequest rejects plain http in non-dev builds) |
+
 ### Unity repo (`annehiatt/joan-of-the-city-xreal`) — **merged to `main`** (2026-07-15, `8ef3ad2..b3d13ff`)
 
 | Commits | Contents |
@@ -145,6 +164,32 @@ commits and can be deleted whenever.)
 | `1078470` | SYNC TEST row (test tone + mute buttons) in both HTML copies; unity-patch mirror |
 | `unity-patch/` | Mirror of all Unity-side files + `TEST-REPORT-2026-07-15.md` (sync verification) |
 
+### Cue-controller repo — 2026-07-16/17 wave, on `main` (`b1baf7c..0d9fcd6`)
+
+| Commits | Contents |
+|---|---|
+| `1711591`, `44c6953` | Panel: Wi-Fi lock toggle · per-device 📸 in the roster (+ `sendToIp` helper) |
+| `55e2b2e` | Panel: fps/battery vitals — roster readout + graph metric selector |
+| `a41e5b5`, `2eb0b7c` | server.py snapshot endpoints (`POST/GET /debug/snapshot`) + 📸 UI + docs |
+| `c877647` | **Kotlin parity**: snapshot endpoints in `CueHttpServer`, `sentAt`/`playAt` in `/send` responses, battery vitals in `PerformerService` heartbeat |
+| `5295741` | **Wireless video recording**: `POST /debug/record` drives `adb screenrecord` over WiFi (auto-arms `adb tcpip 5555` when the device is seen on USB), `GET /debug/video`, panel 🎥 + ⏱ + inline player |
+| `0d9fcd6` | **Roster bootstrap**: periodic `/clock/master` announce (`auto` IP substitution in both servers); global 📸 removed |
+
+### Verification summary — real hardware (2026-07-16, Beam Pro X4000 + XREAL glasses, private WiFi)
+
+- **Wi-Fi lock A/B (90 s windows, tones every 1.5 s)**: lock ON → max transit
+  **65 ms**, jitter 28 ms, **0% spikes**; lock OFF → max **674 ms**, 21% of
+  cues spiked (the ~35–40 s power-save cycle). Lock state round-trips over
+  `/debug/wifilock` with `ACQUIRED`/`released` log confirmations.
+- Sync-lead consequence: **200 ms is a safe show lead with the lock held**
+  (3× headroom over the measured worst case; was 310+ ms before the lock).
+- World-space HUD renders in the glasses (feed + graph); vitals live in the
+  header; snapshots verified end-to-end after the two fixes above.
+- Measured scene performance on the Beam Pro: **17–25 fps** (XREAL target is
+  60–72) — visible in the FRAME RATE graph; cue *playback* is audio-thread
+  and unaffected, but main-thread cue processing gains up to a frame
+  (~60 ms) of jitter. Flagged for scene optimization.
+
 ### Verification summary (in-editor, MainScene, against the live server)
 
 - Scheduled cues land 388–394 ms into a 400 ms lead (≈6–12 ms transit+jitter)
@@ -155,6 +200,29 @@ commits and can be deleted whenever.)
 - 3× dedupe: one trigger / one beep per send
 - Mute round-trip: `AudioListener.volume` 0 → 1
 - **Debug off: a fired cue produced zero debug events** (the rollback guarantee)
+
+## Panel views — 2026-07-16/17 additions
+
+- **Roster vitals + per-device actions** — each roster row now shows
+  `NNfps NN%⚡` from the heartbeat's trailing vitals (fps hidden for devices
+  that report −1, e.g. performer tablets; ⚡ = charging), plus **📸** (snapshot
+  just that device — the camera view HTTP-POSTs back and appears in the
+  SNAPSHOTS strip, click for full size) and **🎥** (wireless screen recording,
+  see the video section above; duration from the ⏱ select in SYNC TEST).
+  The old global snapshot button was removed — per-device is the right
+  granularity, since capture hitches the device for a frame.
+- **Graph metric selector** — the DEVICE DELAY title is a dropdown:
+  `DEVICE DELAY | FRAME RATE | BATTERY`. Same per-device colored series and
+  device filter, one heartbeat per point. fps scale floors at 60 (healthy =
+  high); battery is a fixed 0–100 scale. fps dips = thermal throttling
+  warning *before* latency degrades; battery = plan swaps before a show.
+- **Roster bootstrap (red-dot fix)** — the page announces `/clock/master` to
+  every configured device IP every 5 s (value `auto` → the server substitutes
+  its LAN IP per target). Previously the announce rode only on scheduled
+  audio sends, so a freshly launched headset couldn't heartbeat (it didn't
+  know the master yet) and sat red until the first test tone. Now: launch →
+  green within ~10 s, no tone. Also re-points devices within seconds if the
+  server's IP changes mid-session.
 
 ## Panel views (D1, extended 2026-07-15 evening)
 
@@ -201,7 +269,22 @@ commits and can be deleted whenever.)
 - ~~offsetMs roster display~~ · ~~"2 audio listeners" spam~~ ·
   ~~always-on heartbeat~~ · ~~/audio/reload in Unity~~ · ~~per-cue ack
   summary~~ — **all done 2026-07-15 evening.**
-- Remaining: **multi-device verification on real headsets** (scheduled).
+- **2026-07-16/17 updates to this list**: single-headset real-hardware
+  verification is **done** (see the verification summary above). The
+  in-glasses HUD invisible-in-stereo limitation is **fixed**
+  (`DebugHudWorld`). New follow-ups:
+  - **Drop the sync lead to ~200 ms** in the controller settings (safe with
+    the Wi-Fi lock; re-measure at the venue with `🐞 → graph`).
+  - **Scene performance**: 17–25 fps on the Beam Pro vs the 60–72 target —
+    needs scene/VFX optimization (watch FRAME RATE over a 20–30 min run for
+    thermal sag).
+  - **Wireless adb arming** for 🎥 resets on device reboot — one USB plug-in
+    per boot per device (the server arms it automatically when it sees the
+    device on USB).
+  - Wireless recording end-to-end still needs its first full run (arming
+    window was missed on the test night; the error path is verified).
+- Remaining: **multi-device verification on real headsets** (single headset
+  verified 2026-07-16; the full-audience pass is still to schedule).
   Sync **Phase 2 (position servo) is rejected as designed** for this
   production (short stems re-anchor at every cue start; pitch-based rate
   nudges are audible on sustained sung material) — see the decision note in

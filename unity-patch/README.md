@@ -1,12 +1,23 @@
 # Unity Patch — Audio Sync Phases 0+1 (Scheduled Cue Starts)
 
-> **Update 2026-07-15 (evening):** this folder now also carries the Unity side
-> of the debug observability layer (D2+D3): `DebugReporter.cs` + `DebugHud.cs`
-> (new), plus debug hooks in `OscCueReceiver.cs` and an `OffsetMs` accessor in
-> `MasterClock.cs`. **Both features are merged to `main` of the Unity repo**
-> (2026-07-15, `8ef3ad2..b3d13ff`) — a current checkout doesn't need this
-> folder; it remains as the standalone-copy fallback and docs anchor.
-> Controller/server side is D0+D1 in this repo.
+> **Update 2026-07-17:** the folder now also mirrors the real-hardware wave,
+> all **merged to `main` of the Unity repo** (`1f5a637..5b39551`):
+> `WifiLockManager.cs` (Wi-Fi low-latency lock — cut worst-case cue transit
+> 674→65 ms, auto-on at start, `/debug/wifilock` toggle),
+> `Assets/Plugins/Android/JoanAudio.androidlib/` (adds the `WAKE_LOCK`
+> permission the lock needs), `DebugHudWorld.cs` (world-space in-glasses HUD —
+> the OnGUI HUD never composited into XR stereo), `Snapshot.cs`
+> (`/debug/snap` camera capture → HTTP upload; note the two hard-won fixes
+> inside: URP render requests + System.Net upload), heartbeat vitals
+> (fps/battery) in `DebugReporter.cs`. See `../DEBUG-MODE.md` for the full
+> protocol, panel features, and measured results.
+>
+> **Update 2026-07-15 (evening):** this folder also carries the debug
+> observability layer (D2+D3): `DebugReporter.cs` + `DebugHud.cs` (new), plus
+> debug hooks in `OscCueReceiver.cs` and an `OffsetMs` accessor in
+> `MasterClock.cs` (merged 2026-07-15, `8ef3ad2..b3d13ff`). A current checkout
+> doesn't need this folder; it remains as the standalone-copy fallback and
+> docs anchor. Controller/server side is D0+D1 in this repo.
 > Enable from the controller's 🐞 panel: `/debug/enable 1`, `/debug/heartbeat 1`.
 > Everything defaults OFF; with debug off, behavior is byte-identical.
 
