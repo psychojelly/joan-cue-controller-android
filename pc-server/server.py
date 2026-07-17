@@ -107,6 +107,104 @@ DEBUG_RING = 500
 _snapshot_lock = threading.Lock()
 _snapshots = {}             # id -> {"jpg": bytes, "t": master_time, "n": count}
 
+# ---- glasses video (adb screenrecord over WiFi) -----------------------------
+# The panel's per-device 🎥 asks this server to drive `adb screenrecord` on the
+# device wirelessly (adb connect <ip>:5555). Recording writes to the device's
+# own storage — zero WiFi traffic during capture, so cue latency is untouched;
+# the MP4 is pulled afterward. One-time setup per boot: TCP debugging must be
+# enabled via `adb tcpip 5555` while on USB — done automatically below whenever
+# the device is seen on USB. Note: adb-over-WiFi means anyone on the LAN can
+# reach the device's debugger; fine on a private show network, don't leave it
+# on on public WiFi (it resets on device reboot anyway).
+import re
+import shutil
+import subprocess
+
+ADB = (os.environ.get("ADB")
+       or shutil.which("adb")
+       or r"C:\Android\sdk\platform-tools\adb.exe")
+
+_video_lock = threading.Lock()
+_video = None               # {"mp4": bytes, "ip": str, "sec": int, "display": str}
+_video_busy = False
+
+
+def _adb(args, timeout):
+    try:
+        return subprocess.run([ADB] + args, capture_output=True, text=True,
+                              timeout=timeout)
+    except Exception as e:
+        class R:  # minimal failed-result stand-in
+            returncode = 1
+            stdout = ""
+            stderr = str(e)
+        return R()
+
+
+def _server_log(level, msg):
+    """Surface server-side record progress/errors in the panel's log."""
+    _debug_add("/debug/log", ["SERVER", master_now(), level, msg], "server")
+
+
+def _record_thread(ip, sec):
+    global _video, _video_busy
+    try:
+        serial = f"{ip}:5555"
+        r = _adb(["connect", serial], 10)
+        if "connected" not in (r.stdout or ""):
+            # Maybe TCP mode isn't enabled — flip it if the device is on USB.
+            devs = _adb(["devices"], 10).stdout or ""
+            usb = [ln.split()[0] for ln in devs.splitlines()[1:]
+                   if ln.strip().endswith("device") and ":" not in ln.split()[0]]
+            if usb:
+                _server_log("info", f"enabling adb-over-WiFi via USB ({usb[0]})…")
+                _adb(["-s", usb[0], "tcpip", "5555"], 10)
+                time.sleep(2)
+                r = _adb(["connect", serial], 10)
+            if "connected" not in (r.stdout or ""):
+                _server_log("error",
+                    f"record: can't reach {serial} — plug the device into USB once "
+                    f"per boot so I can enable wireless adb, then retry")
+                return
+
+        # Pick the display: with glasses attached a second physical display
+        # appears — record that one; otherwise the primary (phone screen).
+        out = _adb(["-s", serial, "shell", "dumpsys", "SurfaceFlinger",
+                    "--display-id"], 10).stdout or ""
+        ids = re.findall(r"Display (\d+)", out)
+        use_glasses = len(ids) > 1
+        display = ids[-1] if use_glasses else (ids[0] if ids else None)
+        label = "glasses display" if use_glasses else "primary display (no glasses detected)"
+        _server_log("info", f"recording {ip} {label} for {sec}s…")
+
+        cmd = ["-s", serial, "shell", "screenrecord", "--time-limit", str(sec)]
+        if use_glasses:
+            cmd += ["--display-id", display]
+        cmd += ["/sdcard/joan-rec.mp4"]
+        r = _adb(cmd, sec + 20)
+        if r.returncode != 0:
+            _server_log("error", f"record failed: {(r.stderr or r.stdout or '?').strip()[:160]}")
+            return
+
+        rec_dir = os.path.join(ROOT, "recordings")
+        os.makedirs(rec_dir, exist_ok=True)
+        path = os.path.join(rec_dir, f"glasses-{int(time.time())}.mp4")
+        r = _adb(["-s", serial, "pull", "/sdcard/joan-rec.mp4", path], 60)
+        _adb(["-s", serial, "shell", "rm", "/sdcard/joan-rec.mp4"], 10)
+        if r.returncode != 0 or not os.path.isfile(path):
+            _server_log("error", f"record: pull failed: {(r.stderr or '?').strip()[:160]}")
+            return
+        with open(path, "rb") as f:
+            mp4 = f.read()
+        with _video_lock:
+            _video = {"mp4": mp4, "ip": ip, "sec": sec,
+                      "display": "glasses" if use_glasses else "primary"}
+        _debug_add("/debug/video",
+                   [ip, len(mp4), sec, "glasses" if use_glasses else "primary"],
+                   "server")
+    finally:
+        _video_busy = False
+
 
 def _debug_add(addr, args, src_ip):
     global _debug_seq
@@ -221,6 +319,22 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(snap["jpg"])
             return
 
+        # Latest glasses recording (see _record_thread).
+        if path == "/debug/video":
+            with _video_lock:
+                vid = _video
+            if not vid:
+                self.send_error(404, "No recording yet")
+                return
+            self.send_response(200)
+            self._cors()
+            self.send_header("Content-Type", "video/mp4")
+            self.send_header("Content-Length", str(len(vid["mp4"])))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(vid["mp4"])
+            return
+
         if path in ("/", ""):
             path = "/" + DEFAULT_PAGE
 
@@ -263,6 +377,36 @@ class Handler(BaseHTTPRequestHandler):
             _debug_add("/debug/snapshot", [dev, len(jpg)],
                        self.client_address[0] if self.client_address else "?")
             payload = json.dumps({"ok": True, "bytes": len(jpg)}).encode("utf-8")
+            self.send_response(200)
+            self._cors()
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+
+        # Start a wireless screen recording of one device (adb screenrecord).
+        if urlparse(self.path).path == "/debug/record":
+            global _video_busy
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(length) or b"{}")
+                ip = str(body.get("ip", "")).strip()
+                sec = max(2, min(180, int(body.get("sec", 10))))
+            except Exception:
+                self.send_error(400, "Bad JSON")
+                return
+            if not ip:
+                self.send_error(400, "Missing device ip")
+                return
+            with _video_lock:
+                if _video_busy:
+                    payload = json.dumps({"ok": False, "error": "already recording"}).encode()
+                else:
+                    _video_busy = True
+                    threading.Thread(target=_record_thread, args=(ip, sec),
+                                     daemon=True).start()
+                    payload = json.dumps({"ok": True, "recording": sec}).encode()
             self.send_response(200)
             self._cors()
             self.send_header("Content-Type", "application/json")

@@ -3006,6 +3006,11 @@ if (loadSettings().csvUrl) {
     <button id="dbg-test" title="Generated triple beep, outside the cue system. With sync mode on it is scheduled on the master clock — all devices should beep as one." style="background:#1a2c1f; border:1px solid #2f5238; color:#9fe8ae; border-radius:6px; cursor:pointer; padding:4px 12px; font-family:inherit; font-size:12px;">🔊 test tone</button>
     <button id="dbg-mute" title="Master mute on every targeted device. Stems keep playing silently, so unmuting stays in sync." style="background:none; border:1px solid #2a2d3a; color:#cfd2e0; border-radius:6px; cursor:pointer; padding:4px 12px; font-family:inherit; font-size:12px;">🔇 mute</button>
     <button id="dbg-snap" title="Ask each targeted device to capture its camera view and upload it here (one-frame hitch on the device — tech tool, not mid-show). Thumbnails appear below; click one for full size." style="background:none; border:1px solid #2a2d3a; color:#cfd2e0; border-radius:6px; cursor:pointer; padding:4px 12px; font-family:inherit; font-size:12px;">📸 snapshot</button>
+    <label style="font-size:12px; display:flex; gap:4px; align-items:center;" title="Recording duration for the roster 🎥 buttons">⏱
+      <select id="dbg-rec-sec" style="background:#12141d; border:1px solid #2a2d3a; color:#cfd2e0; border-radius:5px; font-family:inherit; font-size:11px; padding:1px 4px;">
+        <option value="5">5s</option><option value="10" selected>10s</option><option value="30">30s</option><option value="60">60s</option>
+      </select>
+    </label>
     <span style="font-size:10px; color:#6f7186;">beeps ride the same clock as cues — one clean beep-beep-beep = in sync</span>
   </div>
   <div style="padding:10px 14px; border-bottom:1px solid #2a2d3a;">
@@ -3158,11 +3163,12 @@ if (loadSettings().csvUrl) {
     addLine('ctl', `SENT /debug/snap ${targetLabel()} — capturing…`, lastSendMeta.sentAt);
   });
   const snaps = {};                        // id -> {t, n} (bump n to bust cache)
+  let latestVideo = null;                  // {ip, bytes, sec, display, n}
   const snapsWrap = document.getElementById('dbg-snaps-wrap');
   const snapsEl = document.getElementById('dbg-snaps');
   function renderSnaps() {
     const ids = Object.keys(snaps).sort();
-    if (!ids.length) { snapsWrap.style.display = 'none'; return; }
+    if (!ids.length && !latestVideo) { snapsWrap.style.display = 'none'; return; }
     snapsWrap.style.display = 'block';
     snapsEl.innerHTML = ids.map(id => {
       const url = `${BASE}/debug/snapshot?id=${encodeURIComponent(id)}&n=${snaps[id].n}`;
@@ -3170,7 +3176,11 @@ if (loadSettings().csvUrl) {
         <img src="${url}" style="width:140px; border:1px solid #2a2d3a; border-radius:6px; display:block;"/>
         <span style="font-size:10px; color:${seriesColor(id)};">${esc(id)} <span style="color:#6f7186">mt ${snaps[id].t.toFixed(0)}</span></span>
       </a>`;
-    }).join('');
+    }).join('') + (latestVideo ? `
+      <div style="text-align:center;">
+        <video controls src="${BASE}/debug/video?n=${latestVideo.n}" style="width:220px; border:1px solid #2a2d3a; border-radius:6px; display:block;"></video>
+        <span style="font-size:10px; color:#d4af6a;">🎥 ${esc(latestVideo.ip)} · ${latestVideo.sec}s · ${esc(latestVideo.display)} <a href="${BASE}/debug/video?n=${latestVideo.n}" target="_blank" style="color:#6f7186">open</a></span>
+      </div>` : '');
   }
 
   function esc(s) { return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
@@ -3261,6 +3271,12 @@ if (loadSettings().csvUrl) {
         addLine('ctl', `SNAPSHOT from ${a[0]} (${(a[1] / 1024).toFixed(0)} KB)`, ev.t, a[0]);
         break;
       }
+      case '/debug/video': {
+        latestVideo = { ip: a[0], bytes: a[1], sec: a[2], display: a[3], n: (latestVideo ? latestVideo.n : 0) + 1 };
+        renderSnaps();
+        addLine('ctl', `VIDEO ready: ${a[2]}s of ${a[0]}'s ${a[3]} display (${(a[1] / 1048576).toFixed(1)} MB)`, ev.t);
+        break;
+      }
       default:
         addLine('raw', `${ev.addr} ${a.join(' ')} @ ${ev.from}`, ev.t);
     }
@@ -3290,7 +3306,8 @@ if (loadSettings().csvUrl) {
       }
       const hb = d.hb ? `${clock}  cue ${d.hb.lastCue || '—'}  stems ${d.hb.stems}${vitals}` : '';
       const snapBtn = d.ip
-        ? ` <button data-snap-ip="${esc(d.ip)}" data-snap-id="${esc(id)}" title="Snapshot just this device's view (one-frame hitch on it)" style="background:none; border:1px solid #2a2d3a; color:#cfd2e0; border-radius:4px; cursor:pointer; padding:0 5px; font-size:11px; line-height:1.5;">📸</button>`
+        ? ` <button data-snap-ip="${esc(d.ip)}" data-snap-id="${esc(id)}" title="Snapshot just this device's view (one-frame hitch on it)" style="background:none; border:1px solid #2a2d3a; color:#cfd2e0; border-radius:4px; cursor:pointer; padding:0 5px; font-size:11px; line-height:1.5;">📸</button>` +
+          ` <button data-rec-ip="${esc(d.ip)}" data-rec-id="${esc(id)}" title="Record this device's glasses display over WiFi (adb screenrecord — device-side capture, no WiFi load during recording). Needs one USB plug-in per device boot to arm wireless adb. Duration from the ⏱ select in SYNC TEST." style="background:none; border:1px solid #2a2d3a; color:#cfd2e0; border-radius:4px; cursor:pointer; padding:0 5px; font-size:11px; line-height:1.5;">🎥</button>`
         : '';
       return `<div>${dot} <b>${esc(id)}</b>${snapBtn} <span style="color:#6f7186">${esc(d.ip || '')} · ${age.toFixed(0)}s ago${esc(hb)}</span></div>`;
     }).join('');
@@ -3298,6 +3315,20 @@ if (loadSettings().csvUrl) {
       btn.addEventListener('click', async () => {
         await sendToIp(btn.dataset.snapIp, '/debug/snap', 1);
         addLine('ctl', `SENT /debug/snap → ${btn.dataset.snapId} (${btn.dataset.snapIp}) — capturing…`, lastSendMeta.sentAt);
+      });
+    });
+    rosterEl.querySelectorAll('button[data-rec-ip]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const sec = parseInt(document.getElementById('dbg-rec-sec').value, 10);
+        const PROXY_URL = location.protocol.startsWith('http') ? '/debug/record' : 'http://127.0.0.1:8765/debug/record';
+        try {
+          const r = await fetch(PROXY_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ip: btn.dataset.recIp, sec }) });
+          const j = await r.json().catch(() => ({}));
+          addLine('ctl', j.ok
+            ? `RECORDING ${btn.dataset.recId} (${btn.dataset.recIp}) for ${sec}s — video appears below when done`
+            : `record refused: ${j.error || 'server error'}`);
+        } catch (e) { addLine('err', 'record request failed — is the server running?'); }
       });
     });
   }

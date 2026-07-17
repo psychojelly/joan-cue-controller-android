@@ -49,6 +49,27 @@ so the controller computes true send→receive margins per device per cue.
 | `/debug/hb` | `id, masterTime:d, lastCue, stems:i, offsetMs:d[, fps:f, batt:f, charging:i]` | Heartbeat: liveness + clock health + what's playing (`offsetMs=−1` when unsynced). Trailing vitals (additive, new headset builds only): smoothed render fps, battery % (−1 unsupported), charging flag. Rate: 1 Hz active, 5 s safety mode |
 | `/debug/log` | `id, masterTime:d, level, msg` | Warnings/errors + `[JoanAudio]` logs, rate-limited 10/s/device |
 
+## Glasses video recording (🎥, wireless)
+
+Each roster row's **🎥** asks the PC server to record that device's **glasses
+display** over WiFi via `adb screenrecord` (duration from the ⏱ select,
+5–60 s). Capture happens **on the device** (hardware encoder, writes to its
+own storage) so there is **no WiFi traffic during recording** — cue latency
+is untouched; the MP4 is pulled afterward and appears as an inline player in
+the SNAPSHOTS strip (`GET /debug/video`).
+
+- **One-time arming per device boot**: wireless adb (`adb tcpip 5555`) must
+  be enabled while the device is on USB. The server does this automatically
+  if it sees the device on USB when a wireless connect fails — so: plug in
+  once, press 🎥, done. Resets when the device reboots.
+- With glasses attached the second physical display (the glasses view) is
+  recorded; without them it falls back to the primary (phone) display and
+  says so in the log.
+- Progress/errors appear in the panel log as `SERVER:` lines.
+- Security note: wireless adb is open to the LAN — fine on the private show
+  network; don't leave it armed on public WiFi.
+- PC server only (`server.py` drives adb; the tablet server has no adb).
+
 ## The three surfaces
 
 1. **Operator page — 🐞 panel** (`pc-server/index.html`, mirrored in the tablet
