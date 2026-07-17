@@ -40,22 +40,46 @@ namespace JoanAudio
                     yield break;
                 }
 
-                var rt = RenderTexture.GetTemporary(Width, Height, 24);
-                var prevTarget = cam.targetTexture;
-                cam.targetTexture = rt;
-                cam.Render();
-                cam.targetTexture = prevTarget;
+                byte[] jpg = null;
+                try
+                {
+                    var rt = RenderTexture.GetTemporary(Width, Height, 24);
 
-                var prevActive = RenderTexture.active;
-                RenderTexture.active = rt;
-                var tex = new Texture2D(Width, Height, TextureFormat.RGB24, false);
-                tex.ReadPixels(new Rect(0, 0, Width, Height), 0, 0);
-                tex.Apply(false);
-                RenderTexture.active = prevActive;
-                RenderTexture.ReleaseTemporary(rt);
+                    // URP does not support manual Camera.Render() — the SRP way
+                    // is a render request. Fall back to Camera.Render() only on
+                    // the built-in pipeline (e.g. if the project ever changes).
+                    var request = new UnityEngine.Rendering.RenderPipeline.StandardRequest();
+                    if (UnityEngine.Rendering.RenderPipeline.SupportsRenderRequest(cam, request))
+                    {
+                        request.destination = rt;
+                        UnityEngine.Rendering.RenderPipeline.SubmitRenderRequest(cam, request);
+                    }
+                    else
+                    {
+                        var prevTarget = cam.targetTexture;
+                        cam.targetTexture = rt;
+                        cam.Render();
+                        cam.targetTexture = prevTarget;
+                    }
 
-                byte[] jpg = tex.EncodeToJPG(JpgQuality);
-                Object.Destroy(tex);
+                    var prevActive = RenderTexture.active;
+                    RenderTexture.active = rt;
+                    var tex = new Texture2D(Width, Height, TextureFormat.RGB24, false);
+                    tex.ReadPixels(new Rect(0, 0, Width, Height), 0, 0);
+                    tex.Apply(false);
+                    RenderTexture.active = prevActive;
+                    RenderTexture.ReleaseTemporary(rt);
+
+                    jpg = tex.EncodeToJPG(JpgQuality);
+                    Object.Destroy(tex);
+                }
+                catch (System.Exception e)
+                {
+                    Debug.LogWarning($"[JoanAudio] snapshot capture failed: {e.Message}");
+                    DebugReporter.Hud("snapshot capture failed");
+                    jpg = null;
+                }
+                if (jpg == null) yield break;
 
                 string master = MasterClock.MasterIp;
                 if (string.IsNullOrEmpty(master))
@@ -64,24 +88,46 @@ namespace JoanAudio
                     yield break;
                 }
 
+                // Upload with System.Net on a worker thread — NOT UnityWebRequest,
+                // which rejects plain http:// ("Insecure connection not allowed")
+                // in non-development builds unless the project-wide player setting
+                // is changed. The cue server is LAN http by design; .NET sockets
+                // aren't subject to Unity's policy, and this stays scripts-only.
                 string url = $"http://{master}:{ServerPort}/debug/snapshot" +
                              $"?id={UnityWebRequest.EscapeURL(DebugReporter.DeviceId ?? "device")}";
-                using (var req = new UnityWebRequest(url, "POST"))
+                bool done = false, ok = false;
+                string error = null;
+                var worker = new System.Threading.Thread(() =>
                 {
-                    req.uploadHandler = new UploadHandlerRaw(jpg) { contentType = "image/jpeg" };
-                    req.downloadHandler = new DownloadHandlerBuffer();
-                    req.timeout = 10;
-                    yield return req.SendWebRequest();
+                    try
+                    {
+                        var req = (System.Net.HttpWebRequest)System.Net.WebRequest.Create(url);
+                        req.Method = "POST";
+                        req.ContentType = "image/jpeg";
+                        req.ContentLength = jpg.Length;
+                        req.Timeout = 10000;
+                        req.ReadWriteTimeout = 10000;
+                        using (var s = req.GetRequestStream()) s.Write(jpg, 0, jpg.Length);
+                        using (var resp = (System.Net.HttpWebResponse)req.GetResponse())
+                            ok = (int)resp.StatusCode == 200;
+                        if (!ok) error = "server refused";
+                    }
+                    catch (System.Exception e) { error = e.Message; }
+                    finally { done = true; }
+                }) { IsBackground = true };
+                worker.Start();
+                float deadline = Time.realtimeSinceStartup + 15f;
+                while (!done && Time.realtimeSinceStartup < deadline) yield return null;
 
-                    if (req.result == UnityWebRequest.Result.Success)
-                    {
-                        Debug.Log($"[JoanAudio] snapshot sent ({jpg.Length / 1024} KB)");
-                        DebugReporter.Hud("snapshot sent 📸");
-                    }
-                    else
-                    {
-                        Debug.LogWarning($"[JoanAudio] snapshot upload failed: {req.error}");
-                    }
+                if (ok)
+                {
+                    Debug.Log($"[JoanAudio] snapshot sent ({jpg.Length / 1024} KB)");
+                    DebugReporter.Hud("snapshot sent 📸");
+                }
+                else
+                {
+                    Debug.LogWarning($"[JoanAudio] snapshot upload failed: {error ?? "timeout"}");
+                    DebugReporter.Hud("snapshot upload FAILED");
                 }
             }
             finally { busy = false; }
