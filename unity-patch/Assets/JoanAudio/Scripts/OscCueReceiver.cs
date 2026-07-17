@@ -49,6 +49,10 @@ namespace JoanAudio
                  "which causes periodic transit spikes). Operator toggles it live with " +
                  "/debug/wifilock 0|1.")]
         public string WifiLockAddress = "/debug/wifilock";
+        [Tooltip("/debug/snap — capture the scene camera's view and HTTP-POST it " +
+                 "to the cue server for the operator panel. One-frame hitch; " +
+                 "tech-rehearsal tool, avoid mid-performance.")]
+        public string SnapshotAddress = "/debug/snap";
         [Tooltip("Acquire the Wi-Fi low-latency lock automatically on app start " +
                  "(recommended for the show). The operator can still toggle it live.")]
         public bool WifiLockOnStart = true;
@@ -87,6 +91,7 @@ namespace JoanAudio
             Receiver.Bind(TestToneAddress, OnTestTone);
             Receiver.Bind(ReloadAddress, OnReload);
             Receiver.Bind(WifiLockAddress, OnWifiLock);
+            Receiver.Bind(SnapshotAddress, OnSnapshot);
             DebugReporter.SafetyHeartbeat = AlwaysOnSafetyHeartbeat;
             DebugReporter.Attach(Controller);
             if (WifiLockOnStart) WifiLockManager.SetLocked(true);
@@ -95,6 +100,13 @@ namespace JoanAudio
         /// <summary>/debug/wifilock [0|1] — operator toggles the Android Wi-Fi
         /// low-latency lock to stabilize cue transit (kills periodic power-save
         /// spikes). No-op off-device.</summary>
+        /// <summary>/debug/snap — capture the camera view and upload it to the
+        /// cue server for the operator panel (see Snapshot.cs).</summary>
+        void OnSnapshot(OSCMessage msg)
+        {
+            StartCoroutine(Snapshot.CaptureAndSend());
+        }
+
         void OnWifiLock(OSCMessage msg)
         {
             if (msg.Values.Count < 1) return;

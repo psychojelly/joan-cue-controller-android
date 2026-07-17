@@ -102,6 +102,12 @@ _debug_seq = 0
 DEBUG_RING = 500
 
 
+# ---- headset snapshots (POSTed as JPEG over HTTP — too big for OSC/UDP) ----
+# Latest snapshot per device id, kept in memory (a few hundred KB each).
+_snapshot_lock = threading.Lock()
+_snapshots = {}             # id -> {"jpg": bytes, "t": master_time, "n": count}
+
+
 def _debug_add(addr, args, src_ip):
     global _debug_seq
     with _debug_lock:
@@ -195,6 +201,26 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(payload)
             return
 
+        # Latest snapshot for one device: /debug/snapshot?id=<device>
+        if path == "/debug/snapshot":
+            dev = ""
+            for kv in urlparse(self.path).query.split("&"):
+                if kv.startswith("id="):
+                    dev = unquote(kv.split("=", 1)[1])
+            with _snapshot_lock:
+                snap = _snapshots.get(dev)
+            if not snap:
+                self.send_error(404, "No snapshot for that device yet")
+                return
+            self.send_response(200)
+            self._cors()
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(snap["jpg"])))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(snap["jpg"])
+            return
+
         if path in ("/", ""):
             path = "/" + DEFAULT_PAGE
 
@@ -215,6 +241,36 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---- 2) Bridge one button press to one OSC/UDP message ----
     def do_POST(self):
+        # Headsets upload /debug/snap captures here as raw JPEG bodies.
+        if urlparse(self.path).path == "/debug/snapshot":
+            dev = "device"
+            for kv in urlparse(self.path).query.split("&"):
+                if kv.startswith("id="):
+                    dev = unquote(kv.split("=", 1)[1]) or dev
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                if length <= 0 or length > 8_000_000:
+                    self.send_error(400, "Bad snapshot size")
+                    return
+                jpg = self.rfile.read(length)
+            except Exception:
+                self.send_error(400, "Bad snapshot body")
+                return
+            with _snapshot_lock:
+                n = _snapshots.get(dev, {}).get("n", 0) + 1
+                _snapshots[dev] = {"jpg": jpg, "t": master_now(), "n": n}
+            # Announce on the debug feed so the panel refreshes its thumbnail.
+            _debug_add("/debug/snapshot", [dev, len(jpg)],
+                       self.client_address[0] if self.client_address else "?")
+            payload = json.dumps({"ok": True, "bytes": len(jpg)}).encode("utf-8")
+            self.send_response(200)
+            self._cors()
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+
         if urlparse(self.path).path != "/send":
             self.send_error(404, "Not found")
             return
