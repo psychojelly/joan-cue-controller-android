@@ -3094,6 +3094,20 @@ if (loadSettings().csvUrl) {
       return r.ok;
     } catch (e) { return false; }
   }
+  // Direct send to one device's IP, ignoring the → target dropdown — used by
+  // the roster's per-device buttons (e.g. 📸 snapshot one headset).
+  async function sendToIp(ip, address, value) {
+    lastSendMeta = { sentAt: undefined, playAt: undefined };
+    const port = parseInt(document.getElementById('port').value, 10);
+    const PROXY_URL = location.protocol.startsWith('http') ? '/send' : 'http://127.0.0.1:8765/send';
+    try {
+      const r = await fetch(PROXY_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ host: ip, port, address, value }) });
+      const j = await r.json().catch(() => ({}));
+      if (j && j.sentAt !== undefined) lastSendMeta = { sentAt: j.sentAt, playAt: j.playAt };
+      return r.ok;
+    } catch (e) { return false; }
+  }
 
   // Every control line is stamped with the server's master-clock send time
   // (lastSendMeta.sentAt), so an operator reads sent → reply on one time scale:
@@ -3275,8 +3289,17 @@ if (loadSettings().csvUrl) {
         if (d.hb.batt >= 0) vitals += `  ${d.hb.batt.toFixed(0)}%${d.hb.chg ? '⚡' : ''}`;
       }
       const hb = d.hb ? `${clock}  cue ${d.hb.lastCue || '—'}  stems ${d.hb.stems}${vitals}` : '';
-      return `<div>${dot} <b>${esc(id)}</b> <span style="color:#6f7186">${esc(d.ip || '')} · ${age.toFixed(0)}s ago${esc(hb)}</span></div>`;
+      const snapBtn = d.ip
+        ? ` <button data-snap-ip="${esc(d.ip)}" data-snap-id="${esc(id)}" title="Snapshot just this device's view (one-frame hitch on it)" style="background:none; border:1px solid #2a2d3a; color:#cfd2e0; border-radius:4px; cursor:pointer; padding:0 5px; font-size:11px; line-height:1.5;">📸</button>`
+        : '';
+      return `<div>${dot} <b>${esc(id)}</b>${snapBtn} <span style="color:#6f7186">${esc(d.ip || '')} · ${age.toFixed(0)}s ago${esc(hb)}</span></div>`;
     }).join('');
+    rosterEl.querySelectorAll('button[data-snap-ip]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        await sendToIp(btn.dataset.snapIp, '/debug/snap', 1);
+        addLine('ctl', `SENT /debug/snap → ${btn.dataset.snapId} (${btn.dataset.snapIp}) — capturing…`, lastSendMeta.sentAt);
+      });
+    });
   }
 
   const acksEl = document.getElementById('dbg-acks');
