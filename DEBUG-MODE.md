@@ -45,7 +45,7 @@ so the controller computes true send→receive margins per device per cue.
 |---|---|---|
 | `/debug/hello` | `id, kind` | Announce on enable (`headset` / `editor` / `performer`) |
 | `/debug/rx` | `id, cueId, recvMaster:d, playAt:d` | Cue received; controller shows margin `(playAt−recvMaster)`; `playAt=0` = immediate path |
-| `/debug/hb` | `id, masterTime:d, lastCue, stems:i, offsetMs:d` | Heartbeat: liveness + clock health + what's playing (`offsetMs=−1` when unsynced). Rate: 1 Hz active, 5 s safety mode |
+| `/debug/hb` | `id, masterTime:d, lastCue, stems:i, offsetMs:d[, fps:f, batt:f, charging:i]` | Heartbeat: liveness + clock health + what's playing (`offsetMs=−1` when unsynced). Trailing vitals (additive, new headset builds only): smoothed render fps, battery % (−1 unsupported), charging flag. Rate: 1 Hz active, 5 s safety mode |
 | `/debug/log` | `id, masterTime:d, level, msg` | Warnings/errors + `[JoanAudio]` logs, rate-limited 10/s/device |
 
 ## The three surfaces

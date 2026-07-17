@@ -48,8 +48,12 @@ namespace JoanAudio
             GUI.DrawTexture(new Rect(Pad, Pad, w, h), backdrop);
             float x = Pad * 2, y = Pad * 1.5f;
 
+            float batt = DebugReporter.BatteryPct;
+            string battStr = batt < 0f ? "batt —"
+                : $"batt {batt:F0}%{(DebugReporter.BatteryCharging ? "⚡" : "")}";
             GUI.Label(new Rect(x, y, w, lineH),
-                $"🐞 {DebugReporter.DeviceId}   master {master}", header);
+                $"🐞 {DebugReporter.DeviceId}   master {master}   " +
+                $"{DebugReporter.Fps:F0}fps   {battStr}", header);
             y += lineH;
             GUI.Label(new Rect(x, y, w, lineH),
                 synced ? $"clock synced   hb {hb}" : $"clock NOT SYNCED   hb {hb}",

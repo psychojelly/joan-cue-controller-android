@@ -151,9 +151,13 @@ namespace JoanAudio
             string hb = !DebugReporter.HeartbeatOn && !DebugReporter.SafetyHeartbeat ? "off"
                       : age < 7.0 ? "on" : $"stalled {age:F0}s";
             string wifi = WifiLockManager.Locked ? "wifi-lock" : "NO WIFI-LOCK";
+            float batt = DebugReporter.BatteryPct;
+            string battStr = batt < 0f ? "batt —"
+                : $"batt {batt:F0}%{(DebugReporter.BatteryCharging ? "⚡" : "")}";
 
             headerText.text =
-                $"{DebugReporter.DeviceId}   master {master}\n" +
+                $"{DebugReporter.DeviceId}   master {master}   " +
+                $"{DebugReporter.Fps:F0}fps   {battStr}\n" +
                 $"{(synced ? "clock synced" : "clock NOT SYNCED")}   hb {hb}   {wifi}";
 
             if (mode == 1) RefreshFeed();

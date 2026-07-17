@@ -154,6 +154,26 @@ namespace JoanAudio
 
         // ---- heartbeat (driven by the host's Update, main thread) ------------
 
+        // Smoothed frame rate (EMA over unscaled frame time) and battery.
+        // Battery: SystemInfo.batteryLevel is 0..1, or -1 where unsupported
+        // (e.g. desktop editor). Charging state rides along as +100 offset
+        // is too hacky — instead a separate charging flag char in the panel;
+        // here we just report level and let consumers format it.
+        internal static float Fps { get; private set; }
+        internal static float BatteryPct =>
+            SystemInfo.batteryLevel < 0f ? -1f : SystemInfo.batteryLevel * 100f;
+        internal static bool BatteryCharging =>
+            SystemInfo.batteryStatus == BatteryStatus.Charging ||
+            SystemInfo.batteryStatus == BatteryStatus.Full;
+
+        internal static void FrameTick()
+        {
+            float dt = Time.unscaledDeltaTime;
+            if (dt <= 0f) return;
+            float inst = 1f / dt;
+            Fps = Fps <= 0f ? inst : Mathf.Lerp(Fps, inst, 0.06f);   // ~smooth over 1s @60fps
+        }
+
         internal static void HeartbeatTick()
         {
             // Active mode: 1 Hz. Safety net: 5 s once a master is known, even
@@ -170,8 +190,11 @@ namespace JoanAudio
             // the performer tablets (PerformerService.kt) so the roster reads
             // uniformly. Note the raw value is epoch-relative and can be huge;
             // it's "synced + stable?" information, not a latency number.
+            // Trailing args (fps, battery%) are additive — old consumers that
+            // read hb by index [0..4] are unaffected. battery -1 = unsupported.
             Send("/debug/hb", DeviceId, MasterClock.Now, lastCue, stems,
-                 MasterClock.IsSynced ? MasterClock.OffsetMs : -1.0);
+                 MasterClock.IsSynced ? MasterClock.OffsetMs : -1.0,
+                 Fps, BatteryPct, BatteryCharging ? 1 : 0);
         }
 
         // ---- Unity log forwarding --------------------------------------------
@@ -300,7 +323,7 @@ namespace JoanAudio
                 go.AddComponent<DebugHud>();       // OnGUI — editor / flat screens
                 go.AddComponent<DebugHudWorld>();  // world-space — XR stereo (glasses)
             }
-            void Update() { DebugReporter.HeartbeatTick(); }
+            void Update() { DebugReporter.FrameTick(); DebugReporter.HeartbeatTick(); }
             void OnDestroy() { DebugReporter.Stop(); instance = null; }
         }
     }
