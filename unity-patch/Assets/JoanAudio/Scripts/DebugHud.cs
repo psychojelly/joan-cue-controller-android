@@ -27,7 +27,10 @@ namespace JoanAudio
 
         void OnGUI()
         {
-            if (DebugReporter.HudMode == 0) return;
+            // On device the XR stereo compositor never shows the OnGUI layer —
+            // DebugHudWorld (world-space canvas) covers the glasses; this OnGUI
+            // HUD stays for the editor / flat screens.
+            if (DebugReporter.HudMode == 0 || !Application.isEditor) return;
             EnsureStyles();
 
             bool synced = MasterClock.IsSynced;

@@ -297,7 +297,8 @@ namespace JoanAudio
                 var go = new GameObject("~JoanDebug") { hideFlags = HideFlags.HideAndDontSave };
                 DontDestroyOnLoad(go);
                 instance = go.AddComponent<Host>();
-                go.AddComponent<DebugHud>();
+                go.AddComponent<DebugHud>();       // OnGUI — editor / flat screens
+                go.AddComponent<DebugHudWorld>();  // world-space — XR stereo (glasses)
             }
             void Update() { DebugReporter.HeartbeatTick(); }
             void OnDestroy() { DebugReporter.Stop(); instance = null; }
