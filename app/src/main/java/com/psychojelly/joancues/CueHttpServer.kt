@@ -138,7 +138,16 @@ class CueHttpServer(private val context: Context, port: Int = PORT) : NanoHTTPD(
         val host = body.optString("host", "127.0.0.1")
         val port = body.optInt("port", 7000)
         val addr = body.optString("address", "/cue")
-        val value = coerceValue(body.opt("value") ?: 1)
+        var value = coerceValue(body.opt("value") ?: 1)
+
+        // "/clock/master" with value "auto": substitute this device's LAN IP —
+        // the page announces the master to configured devices every few seconds
+        // (roster bootstrap; parity with server.py).
+        if (addr == "/clock/master" && value == "auto") {
+            value = localIp() ?: return cors(newFixedLengthResponse(
+                Response.Status.OK, "application/json",
+                "{\"ok\":false,\"error\":\"no local ip\"}"))
+        }
 
         // NEW way (sync mode): schedule audio cues on the master clock.
         // leadMs present + /audio/* address -> append playAt (master monotonic

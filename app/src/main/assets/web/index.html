@@ -3005,7 +3005,6 @@ if (loadSettings().csvUrl) {
     <span style="font-size:10px; letter-spacing:1px; color:#d4af6a;">SYNC TEST</span>
     <button id="dbg-test" title="Generated triple beep, outside the cue system. With sync mode on it is scheduled on the master clock — all devices should beep as one." style="background:#1a2c1f; border:1px solid #2f5238; color:#9fe8ae; border-radius:6px; cursor:pointer; padding:4px 12px; font-family:inherit; font-size:12px;">🔊 test tone</button>
     <button id="dbg-mute" title="Master mute on every targeted device. Stems keep playing silently, so unmuting stays in sync." style="background:none; border:1px solid #2a2d3a; color:#cfd2e0; border-radius:6px; cursor:pointer; padding:4px 12px; font-family:inherit; font-size:12px;">🔇 mute</button>
-    <button id="dbg-snap" title="Ask each targeted device to capture its camera view and upload it here (one-frame hitch on the device — tech tool, not mid-show). Thumbnails appear below; click one for full size." style="background:none; border:1px solid #2a2d3a; color:#cfd2e0; border-radius:6px; cursor:pointer; padding:4px 12px; font-family:inherit; font-size:12px;">📸 snapshot</button>
     <label style="font-size:12px; display:flex; gap:4px; align-items:center;" title="Recording duration for the roster 🎥 buttons">⏱
       <select id="dbg-rec-sec" style="background:#12141d; border:1px solid #2a2d3a; color:#cfd2e0; border-radius:5px; font-family:inherit; font-size:11px; padding:1px 4px;">
         <option value="5">5s</option><option value="10" selected>10s</option><option value="30">30s</option><option value="60">60s</option>
@@ -3155,13 +3154,9 @@ if (loadSettings().csvUrl) {
     addLine('ctl', `SENT /audio/mute ${dbgMuted ? 1 : 0} ${targetLabel()}`, lastSendMeta.sentAt);
   });
 
-  // Snapshots: /debug/snap asks each targeted device to capture its camera
-  // view and HTTP-POST it back; the server announces /debug/snapshot on the
-  // feed, which refreshes the thumbnail strip.
-  document.getElementById('dbg-snap').addEventListener('click', async () => {
-    await dbgSend('/debug/snap', 1);
-    addLine('ctl', `SENT /debug/snap ${targetLabel()} — capturing…`, lastSendMeta.sentAt);
-  });
+  // Snapshots arrive via the roster's per-device 📸 buttons (renderRoster):
+  // the device captures its camera view and HTTP-POSTs it back; the server
+  // announces /debug/snapshot on the feed, which refreshes the strip below.
   const snaps = {};                        // id -> {t, n} (bump n to bust cache)
   let latestVideo = null;                  // {ip, bytes, sec, display, n}
   const snapsWrap = document.getElementById('dbg-snaps-wrap');
@@ -3484,6 +3479,26 @@ if (loadSettings().csvUrl) {
     }
   }
   setInterval(poll, 800);
+
+  // Master-clock announcer (roster bootstrap). Devices can't heartbeat or
+  // clock-sync until they learn the master's IP, which used to arrive only
+  // with the first scheduled cue — so freshly launched headsets sat red in
+  // the roster until someone fired a test tone. Announce /clock/master to
+  // every configured device IP every 5 s instead (value "auto" → the server
+  // substitutes its own LAN IP per target). One tiny UDP packet per device;
+  // the device side no-ops when the IP is unchanged. Also heals devices
+  // within seconds if the server's IP ever changes mid-session.
+  function announceMaster() {
+    const port = parseInt(document.getElementById('port').value, 10) || 7000;
+    const PROXY_URL = location.protocol.startsWith('http') ? '/send' : 'http://127.0.0.1:8765/send';
+    for (const ip of loadAllIPs()) {
+      if (!/^\d+\.\d+\.\d+\.\d+$/.test(ip)) continue;
+      fetch(PROXY_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ host: ip, port, address: '/clock/master', value: 'auto' }) }).catch(() => {});
+    }
+  }
+  setInterval(announceMaster, 5000);
+  announceMaster();
 })();
 </script>
 </body>

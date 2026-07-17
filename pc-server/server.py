@@ -443,6 +443,24 @@ class Handler(BaseHTTPRequestHandler):
         else:
             value = str(raw)
 
+        # "/clock/master" with value "auto": substitute this server's LAN IP.
+        # The page announces the master to configured devices every few
+        # seconds (roster bootstrap — devices can't heartbeat or clock-sync
+        # until they know the master's address, which previously arrived
+        # only with the first scheduled cue). The browser doesn't know the
+        # server's LAN address; this fills it in per target.
+        if addr == "/clock/master" and str(value).strip().lower() == "auto":
+            value = local_ip_for(host)
+            if not value:
+                payload = json.dumps({"ok": False, "error": "no route to host"}).encode()
+                self.send_response(200)
+                self._cors()
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+                return
+
         # --- NEW way (sync mode): schedule audio cues on the master clock. ---
         # If the page sends leadMs and the address is an audio one, we append
         # playAt (master monotonic seconds, as an OSC double) and send the
@@ -471,7 +489,8 @@ class Handler(BaseHTTPRequestHandler):
                 print(f"  OSC -> {host}:{port}  {addr}  {value!r}  playAt=+{lead_ms}ms x3")
             else:
                 udp_client.SimpleUDPClient(host, port).send_message(addr, value)
-                print(f"  OSC -> {host}:{port}  {addr}  {value!r}")
+                if addr != "/clock/master":   # periodic announces would drown the log
+                    print(f"  OSC -> {host}:{port}  {addr}  {value!r}")
             # sentAt/playAt are master-clock seconds so the controller's debug
             # log can stamp sent messages on the same scale as device replies.
             resp = {"ok": True, "sentAt": sent_at}
