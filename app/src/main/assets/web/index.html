@@ -3196,14 +3196,23 @@ if (loadSettings().csvUrl) {
     logEl.innerHTML = visible.map(l => l.html).join('');
   }
 
+  // Twin devices of the same model report the same name ("Beam-Pro"), so the
+  // roster is keyed by id+IP — otherwise the second twin silently overwrites
+  // the first's row, graph series, and targeting. Device-side unique IDs are
+  // the long-term fix; this makes twins first-class today.
+  const dkey = (id, ip) => ip ? `${id}@${ip}` : id;
+  const oct = ip => (ip || '').split('.').pop() || '?';
+
   function touch(id, ip) {
     if (!id) return null;
-    const isNew = !devices[id];
-    devices[id] = devices[id] || {};
-    devices[id].ip = ip || devices[id].ip;
-    devices[id].lastSeen = Date.now();
-    if (isNew) { selSet.add(id); renderSeriesSel(); }
-    return devices[id];
+    const key = dkey(id, ip);
+    const isNew = !devices[key];
+    devices[key] = devices[key] || {};
+    devices[key].id = id;
+    devices[key].ip = ip || devices[key].ip;
+    devices[key].lastSeen = Date.now();
+    if (isNew) { selSet.add(key); renderSeriesSel(); }
+    return devices[key];
   }
 
   function handle(ev) {
@@ -3211,7 +3220,7 @@ if (loadSettings().csvUrl) {
     switch (ev.addr) {
       case '/debug/hello': {
         const d = touch(a[0], ev.from); if (d) d.kind = a[1];
-        addLine('ctl', `HELLO ${a[0]} (${a[1]}) @ ${ev.from}`, ev.t, a[0]); break;
+        addLine('ctl', `HELLO ${a[0]}.${oct(ev.from)} (${a[1]}) @ ${ev.from}`, ev.t, dkey(a[0], ev.from)); break;
       }
       case '/debug/hb': {
         const d = touch(a[0], ev.from);
@@ -3231,14 +3240,15 @@ if (loadSettings().csvUrl) {
         // battery are valid regardless. Older builds send only 5 args → the
         // extra fields stay null and the fps/battery metrics show no line.
         {
+          const key = dkey(a[0], ev.from);
           const synced = Number(a[4]) !== -1;
           const pt = { t: ev.t,
                        ms: synced ? (ev.t - Number(a[1])) * 1000 : null,
                        fps: (a.length > 5 && Number(a[5]) >= 0) ? Number(a[5]) : null,
                        batt: (a.length > 6 && Number(a[6]) >= 0) ? Number(a[6]) : null };
-          if (!series[a[0]]) { series[a[0]] = []; selSet.add(a[0]); renderSeriesSel(); }
-          series[a[0]].push(pt);
-          if (series[a[0]].length > 400) series[a[0]].shift();
+          if (!series[key]) series[key] = [];
+          series[key].push(pt);
+          if (series[key].length > 400) series[key].shift();
         }
         break;   // roster only — no log spam
       }
@@ -3246,19 +3256,19 @@ if (loadSettings().csvUrl) {
         touch(a[0], ev.from);
         const scheduled = a[3] > 0;
         const marginMs = scheduled ? (a[3] - a[2]) * 1000 : null;
-        addLine('rx', `RX ${a[0]}  cue ${a[1]}  ${scheduled ? `margin ${marginMs.toFixed(0)}ms` : '(immediate mode)'}`, ev.t, a[0]);
+        addLine('rx', `RX ${a[0]}.${oct(ev.from)}  cue ${a[1]}  ${scheduled ? `margin ${marginMs.toFixed(0)}ms` : '(immediate mode)'}`, ev.t, dkey(a[0], ev.from));
         // Per-cue ack rollup: scheduled cues group by their exact playAt;
         // immediate cues bucket by cueId within a 2 s window.
         const key = scheduled ? `${a[1]}|${a[3]}` : `${a[1]}|imm|${Math.floor(ev.t / 2)}`;
         let g = acks.find(x => x.key === key);
         if (!g) { g = { key, cueId: a[1], scheduled, t: ev.t, rx: {} }; acks.unshift(g); if (acks.length > 6) acks.pop(); }
-        g.rx[a[0]] = marginMs;
+        g.rx[dkey(a[0], ev.from)] = marginMs;
         renderAcks();
         break;
       }
       case '/debug/log': {
         touch(a[0], ev.from);
-        addLine(a[2] === 'error' ? 'err' : 'log', `${a[0]}: ${a[3]}`, a[1], a[0]); break;
+        addLine(a[2] === 'error' ? 'err' : 'log', `${a[0]}.${oct(ev.from)}: ${a[3]}`, a[1], dkey(a[0], ev.from)); break;
       }
       case '/debug/snapshot': {
         snaps[a[0]] = { t: ev.t, n: (snaps[a[0]] ? snaps[a[0]].n : 0) + 1 };
@@ -3300,11 +3310,12 @@ if (loadSettings().csvUrl) {
         if (d.hb.batt >= 0) vitals += `  ${d.hb.batt.toFixed(0)}%${d.hb.chg ? '⚡' : ''}`;
       }
       const hb = d.hb ? `${clock}  cue ${d.hb.lastCue || '—'}  stems ${d.hb.stems}${vitals}` : '';
+      const name = d.id || id;                       // display name; key may be name@ip
       const snapBtn = d.ip
-        ? ` <button data-snap-ip="${esc(d.ip)}" data-snap-id="${esc(id)}" title="Snapshot just this device's view (one-frame hitch on it)" style="background:none; border:1px solid #2a2d3a; color:#cfd2e0; border-radius:4px; cursor:pointer; padding:0 5px; font-size:11px; line-height:1.5;">📸</button>` +
-          ` <button data-rec-ip="${esc(d.ip)}" data-rec-id="${esc(id)}" title="Record this device's glasses display over WiFi (adb screenrecord — device-side capture, no WiFi load during recording). Needs one USB plug-in per device boot to arm wireless adb. Duration from the ⏱ select in SYNC TEST." style="background:none; border:1px solid #2a2d3a; color:#cfd2e0; border-radius:4px; cursor:pointer; padding:0 5px; font-size:11px; line-height:1.5;">🎥</button>`
+        ? ` <button data-snap-ip="${esc(d.ip)}" data-snap-id="${esc(name)}" title="Snapshot just this device's view (one-frame hitch on it)" style="background:none; border:1px solid #2a2d3a; color:#cfd2e0; border-radius:4px; cursor:pointer; padding:0 5px; font-size:11px; line-height:1.5;">📸</button>` +
+          ` <button data-rec-ip="${esc(d.ip)}" data-rec-id="${esc(name)}" title="Record this device's glasses display over WiFi (adb screenrecord — device-side capture, no WiFi load during recording). Needs one USB plug-in per device boot to arm wireless adb. Duration from the ⏱ select in SYNC TEST." style="background:none; border:1px solid #2a2d3a; color:#cfd2e0; border-radius:4px; cursor:pointer; padding:0 5px; font-size:11px; line-height:1.5;">🎥</button>`
         : '';
-      return `<div>${dot} <b>${esc(id)}</b>${snapBtn} <span style="color:#6f7186">${esc(d.ip || '')} · ${age.toFixed(0)}s ago${esc(hb)}</span></div>`;
+      return `<div>${dot} <b>${esc(name)}<span style="color:#8f93a8">.${esc(oct(d.ip))}</span></b>${snapBtn} <span style="color:#6f7186">${esc(d.ip || '')} · ${age.toFixed(0)}s ago${esc(hb)}</span></div>`;
     }).join('');
     rosterEl.querySelectorAll('button[data-snap-ip]').forEach(btn => {
       btn.addEventListener('click', async () => {
@@ -3380,12 +3391,12 @@ if (loadSettings().csvUrl) {
     if (!ids.length) { seriesSelEl.textContent = '(no devices yet — turn on heartbeat, or wait for the safety beacon)'; return; }
     seriesSelEl.innerHTML = '<span style="color:#6f7186; align-self:center;">filter:</span>' + ids.map(id => {
       const c = seriesColor(id);
-      const ip = (devices[id] && devices[id].ip) || '';
+      const d = devices[id] || {};
       const on = selSet.has(id);
       return `<label style="display:flex; align-items:center; gap:5px; cursor:pointer; opacity:${on ? 1 : 0.45};">
         <input type="checkbox" data-dev="${esc(id)}" ${on ? 'checked' : ''} style="accent-color:${c};"/>
-        <span style="color:${c}; font-weight:600;">■ ${esc(id)}</span>
-        <span style="color:#6f7186;">${esc(ip)}</span>
+        <span style="color:${c}; font-weight:600;">■ ${esc(d.id || id)}.${esc(oct(d.ip))}</span>
+        <span style="color:#6f7186;">${esc(d.ip || '')}</span>
       </label>`;
     }).join('');
     seriesSelEl.querySelectorAll('input[type=checkbox]').forEach(cb => {
@@ -3397,8 +3408,10 @@ if (loadSettings().csvUrl) {
     });
     // Keep the control-target dropdown in sync with the roster.
     const keep = targetSel.value;
-    targetSel.innerHTML = '<option value="all">audience (all)</option>' + ids.map(id =>
-      `<option value="${esc((devices[id] && devices[id].ip) || '')}">only ${esc(id)}</option>`).join('');
+    targetSel.innerHTML = '<option value="all">audience (all)</option>' + ids.map(id => {
+      const d = devices[id] || {};
+      return `<option value="${esc(d.ip || '')}">only ${esc(d.id || id)}.${esc(oct(d.ip))}</option>`;
+    }).join('');
     if ([...targetSel.options].some(o => o.value === keep)) targetSel.value = keep;
   }
 
