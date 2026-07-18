@@ -634,16 +634,23 @@
       position: fixed;
       top: 0; right: -480px;
       width: 460px;
-      height: 100vh;
+      height: 100dvh;          /* dvh: real visible height on tablets (100vh hides the bottom behind browser chrome) */
+      max-height: 100vh;
+      box-sizing: border-box;  /* padding stays inside the height so the last field is reachable */
       background: var(--bg-panel);
       border-left: 1px solid var(--border);
       transition: right 0.2s;
       z-index: 100;
-      padding: 16px 18px;
-      overflow: auto;
+      padding: 16px 18px 56px;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
       box-shadow: -4px 0 16px rgba(0,0,0,0.5);
     }
     .drawer.open { right: 0; }
+    /* Side panels (settings drawer / 🐞 debug, both 460px) cover the top-right
+       FF/STOP — shift them left while either panel is open so they stay usable. */
+    .topright { transition: transform 0.2s; }
+    body.side-open .topright { transform: translateX(-472px); }
     .drawer h2 {
       font-size: 16px;
       margin-bottom: 14px;
@@ -2711,8 +2718,21 @@ document.getElementById('tb-collapse-all').addEventListener('click', () => setEx
 // ════════════════════════════════════════════════════════════════════════════
 // Settings drawer
 // ════════════════════════════════════════════════════════════════════════════
-function openDrawer()  { document.getElementById('drawer').classList.add('open'); document.getElementById('drawer-shade').classList.add('open'); }
-function closeDrawer() { document.getElementById('drawer').classList.remove('open'); document.getElementById('drawer-shade').classList.remove('open'); }
+// Settings and the 🐞 debug panel are mutually exclusive (both are 460px
+// right-side panels — stacked they'd hide each other and the operator loses
+// track of state). Opening one closes the other. body.side-open shifts the
+// FF/STOP buttons left while either is open.
+function openDrawer()  {
+  if (window.closeDebugPanel) window.closeDebugPanel();
+  document.getElementById('drawer').classList.add('open');
+  document.getElementById('drawer-shade').classList.add('open');
+  document.body.classList.add('side-open');
+}
+function closeDrawer() {
+  document.getElementById('drawer').classList.remove('open');
+  document.getElementById('drawer-shade').classList.remove('open');
+  if (!(window.isDebugPanelOpen && window.isDebugPanelOpen())) document.body.classList.remove('side-open');
+}
 document.getElementById('drawer-close').addEventListener('click', closeDrawer);
 document.getElementById('drawer-shade').addEventListener('click', closeDrawer);
 document.getElementById('tb-settings').addEventListener('click', openDrawer);
@@ -3067,13 +3087,18 @@ if (loadSettings().csvUrl) {
   const PALETTE = ['#7ee08a', '#5fb8c4', '#d4af6a', '#c48ae0', '#e07a7a', '#8fb8ff', '#e0b060', '#9fe8ae'];
   const seriesColor = id => PALETTE[Object.keys(devices).sort().indexOf(id) % PALETTE.length];
 
-  document.getElementById('tb-debug').addEventListener('click', () => {
-    open = !open;
+  // Mutually exclusive with the settings drawer (see openDrawer/closeDrawer).
+  function setDebugOpen(v) {
+    open = v;
     panel.style.display = open ? 'flex' : 'none';
-  });
-  document.getElementById('dbg-close').addEventListener('click', () => {
-    open = false; panel.style.display = 'none';
-  });
+    if (open) { closeDrawer(); document.body.classList.add('side-open'); renderLog(); }
+    else if (!document.getElementById('drawer').classList.contains('open'))
+      document.body.classList.remove('side-open');
+  }
+  window.closeDebugPanel  = () => { if (open) setDebugOpen(false); };
+  window.isDebugPanelOpen = () => open;
+  document.getElementById('tb-debug').addEventListener('click', () => setDebugOpen(!open));
+  document.getElementById('dbg-close').addEventListener('click', () => setDebugOpen(false));
 
   // Where debug controls go: the whole audience, or one device isolated via
   // the → dropdown (its IP, learned from the roster). Single-device sends
