@@ -101,13 +101,45 @@ To hand the APK to someone: `Build → Build APK(s)`, the file lands in
 headset build. Confirm the cue map (1–5 visual; 6–8 unmapped — do not fire;
 9–16 Shadow states) matches expectations.
 
+## Running the web version from a PC
+
+The PC is the usual show host: it runs the same controller page plus the
+clock master and debug listener.
+
+```
+cd pc-server
+pip install python-osc          # one time
+python server.py
+```
+
+Then open **http://localhost:8765** on the PC — or `http://<pc-ip>:8765`
+from any device on the same network (David's laptop, a tablet's browser).
+The server prints the ports on startup: HTTP **8765** (page + `/send`
+bridge + snapshot/video endpoints), UDP **9001** (clock sync), UDP
+**9002** (device debug reports).
+
+- **Windows Firewall** must allow inbound on those ports or remote
+  browsers/devices can't reach you (one-time, admin PowerShell):
+  `netsh advfirewall firewall add rule name="Joan controller TCP" dir=in action=allow protocol=TCP localport=8765`
+  and the same with `protocol=UDP localport=9001-9002`.
+- The tablet APK can be downloaded from the running server at
+  `http://<pc-ip>:8765/joan-cues.apk` (rebuild + restage with
+  `gradle assembleDebug` → copy `app-debug.apk` to `pc-server/joan-cues.apk`).
+- Settings (device IPs, sync mode, lead) live in each browser's
+  localStorage — every operator browser configures its own; a fresh
+  browser defaults to 127.0.0.1 and must be pointed at real device IPs.
+
 ## Updating the controller page
 
-The webpage lives in `app/src/main/assets/web/index.html` (a copy of
-`qlab-controller.html` from the Unity repo's `osc-cue-server` folder). When
-the controller is updated there, copy the new file over this one and rebuild.
-Settings (IPs, groups, audiences) persist in the WebView's localStorage across
-app updates — use the controller's Export Settings for backups anyway.
+**`pc-server/index.html` in THIS repo is the canonical controller page.**
+`app/src/main/assets/web/index.html` is a byte-identical copy baked into
+the tablet APK — after editing the canonical file, copy it over the app
+copy and rebuild the APK. (A stale historical copy also exists in the
+Unity repo under `Assets/ThirdParty/OSC_Controller/` — see the README
+there; don't edit that one.)
+Settings (IPs, groups, audiences) persist in the WebView's localStorage
+across app updates — use the controller's Export Settings for backups
+anyway.
 
 ## Project layout
 
