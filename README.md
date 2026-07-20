@@ -106,6 +106,14 @@ headset build. Confirm the cue map (1–5 visual; 6–8 unmapped — do not fire
 The PC is the usual show host: it runs the same controller page plus the
 clock master and debug listener.
 
+**Easiest: double-click `pc-server/start-server.bat`** — it checks Python,
+installs the dependency if missing, prints the controller addresses for
+every network the PC is on (plus the tablet-APK download link and firewall
+hints), and starts the server. Keep the window open; close it or Ctrl+C to
+stop.
+
+Manually, the same thing is:
+
 ```
 cd pc-server
 pip install python-osc          # one time
