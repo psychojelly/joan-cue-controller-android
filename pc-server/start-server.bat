@@ -35,7 +35,17 @@ echo    netsh advfirewall firewall add rule name="Joan TCP" dir=in action=allow 
 echo    netsh advfirewall firewall add rule name="Joan UDP" dir=in action=allow protocol=UDP localport=9001-9002
 echo.
 
-python server.py
+REM Open the controller automatically, in a side process so the server still
+REM starts below. Waits a few seconds first: opening instantly would hit the
+REM page before the server is listening and show a connection error.
+start "" /b cmd /c "timeout /t 4 /nobreak >nul & start "" http://localhost:8765/"
+
+echo  Opening the controller in your browser...
+echo.
+
+REM -u = unbuffered. Without it Python buffers stdout, so the 'OSC -^> ...' lines
+REM do not appear as cues fire and the window looks dead while it is working.
+python -u server.py
 echo.
 echo [server stopped]
 pause
