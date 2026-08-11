@@ -19,6 +19,33 @@ python -c "import pythonosc" >nul 2>nul
 if errorlevel 1 (
   echo Installing the one dependency ^(python-osc^)...
   pip install python-osc
+  python -c "import pythonosc" >nul 2>nul
+  if errorlevel 1 (
+    echo.
+    echo [!] python-osc still missing. Install it by hand, then re-run:
+    echo       pip install python-osc
+    pause
+    exit /b 1
+  )
+)
+
+REM Refuse to start on top of a server that is already running. Without this the
+REM second instance HALF-starts: the web page works, but the clock master
+REM ^(UDP 9001^) and debug listener ^(UDP 9002^) fail to bind, so scheduled-sync
+REM timing and device reporting break silently — much worse than not starting.
+powershell -NoProfile -Command "if (Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue) { exit 1 } else { exit 0 }"
+if errorlevel 1 (
+  echo.
+  echo  [!] A cue server is ALREADY running on port 8765.
+  echo.
+  echo      Starting a second one would half-work: the page loads, but cue
+  echo      timing and device reporting break silently.
+  echo.
+  echo      Close the other server window, then run this again.
+  echo      Already-open controller: http://localhost:8765
+  echo.
+  pause
+  exit /b 1
 )
 
 echo.
