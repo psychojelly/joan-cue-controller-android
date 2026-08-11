@@ -350,6 +350,14 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", CONTENT_TYPES.get(ext, "application/octet-stream"))
         self.send_header("Content-Length", str(len(body)))
+        # Never let a browser cache the controller. A stale page is genuinely
+        # dangerous here: it can keep talking to an old origin/port and return
+        # 501s, or run last week's cue logic, while looking perfectly healthy.
+        # This is why "hard-refresh" used to be needed — now it isn't.
+        if ext in (".html", ".htm", ".js", ".css"):
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
         self.end_headers()
         self.wfile.write(body)
 
