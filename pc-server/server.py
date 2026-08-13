@@ -153,6 +153,10 @@ def _record_thread(ip, sec):
         r = _adb(["connect", serial], 10)
         if "connected" not in (r.stdout or ""):
             # Maybe TCP mode isn't enabled — flip it if the device is on USB.
+            # NOTE: `adb tcpip` restarts adbd, which drops the device back to
+            # `unauthorized` until someone taps "Allow USB debugging" ON THE
+            # HEADSET. So this cannot recover unattended; wait for the tap and
+            # say so, rather than reporting a bare connection failure.
             devs = _adb(["devices"], 10).stdout or ""
             usb = [ln.split()[0] for ln in devs.splitlines()[1:]
                    if ln.strip().endswith("device") and ":" not in ln.split()[0]]
@@ -161,10 +165,23 @@ def _record_thread(ip, sec):
                 _adb(["-s", usb[0], "tcpip", "5555"], 10)
                 time.sleep(2)
                 r = _adb(["connect", serial], 10)
+                # Poll for the on-device authorisation prompt to be accepted.
+                for _ in range(12):                      # ~30 s
+                    if "connected" in (r.stdout or ""):
+                        state = _adb(["devices"], 10).stdout or ""
+                        if any(ln.startswith(serial) and ln.strip().endswith("device")
+                               for ln in state.splitlines()):
+                            break
+                        _server_log("info",
+                            "waiting — TAP 'Allow USB debugging' ON THE HEADSET "
+                            "(tick 'Always allow from this computer')")
+                    time.sleep(2.5)
+                    r = _adb(["connect", serial], 10)
             if "connected" not in (r.stdout or ""):
                 _server_log("error",
-                    f"record: can't reach {serial} — plug the device into USB once "
-                    f"per boot so I can enable wireless adb, then retry")
+                    f"record: can't reach {serial}. Wireless adb resets every time "
+                    f"the device reboots. Plug it into USB once, accept the "
+                    f"'Allow USB debugging' prompt, then retry.")
                 return
 
         # Pick the display: with glasses attached a second physical display
@@ -175,6 +192,12 @@ def _record_thread(ip, sec):
         use_glasses = len(ids) > 1
         display = ids[-1] if use_glasses else (ids[0] if ids else None)
         label = "glasses display" if use_glasses else "primary display (no glasses detected)"
+        if not use_glasses:
+            # Worth shouting about: this silently captures the Beam Pro's own
+            # screen instead of the show, and you only discover it afterwards.
+            _server_log("warn",
+                "record: NO GLASSES DISPLAY FOUND — capturing the phone screen, "
+                "not the show. Plug the glasses in and wait for stereo first.")
         _server_log("info", f"recording {ip} {label} for {sec}s…")
 
         cmd = ["-s", serial, "shell", "screenrecord", "--time-limit", str(sec)]
