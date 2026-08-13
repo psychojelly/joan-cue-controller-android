@@ -1803,7 +1803,22 @@ async function sendOsc(address, value) {
   lastSendMeta = { sentAt: undefined, playAt: undefined };
   const ips = loadIPs();
   const port = parseInt(document.getElementById('port').value, 10);
-  if (!ips.length) { setStatus('No IPs configured.', 'err'); return false; }
+  if (!ips.length) {
+    // Distinguish the two ways this ends up empty — they have different fixes,
+    // and the old catch-all message ("No IPs configured") sent people to the IP
+    // list when the real problem was usually an unselected audience. Silent
+    // no-sends here read exactly like "the headset isn't receiving".
+    const master = (loadSettings().ipList || []);
+    const groups = loadActiveGroups();
+    const msg = !groups.length
+      ? 'Nothing sent — NO AUDIENCE SELECTED. Pick an audience chip (e.g. "All") above.'
+      : master.length
+        ? 'Nothing sent — the selected audience contains no IPs from the master list.'
+        : 'Nothing sent — no device IPs configured. Add them in Settings → IPs & Audiences.';
+    setStatus(msg, 'err');
+    try { addLine('ctl', 'BLOCKED  ' + msg); } catch (e) {}
+    return false;
+  }
 
   // Short abort timeout so a dead proxy fails fast instead of hanging GO.
   // (Sync mode sends 3x at 50ms spacing server-side, so allow for that.)
