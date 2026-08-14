@@ -244,6 +244,54 @@ def _debug_add(addr, args, src_ip):
             _debug_events.pop(0)
 
 
+# ---- dropped-cue detection --------------------------------------------------
+# A cue that never arrives is the failure that matters most in a show, and it
+# is invisible from here: UDP has no delivery report, so "sent" always looks
+# like success. The device side already acks every cue it receives with
+# /debug/rx, which turns the question into a timeout: register what we expect
+# each device to ack, and anything still unacked past its deadline is a drop.
+#
+# Deadline is the cue's own playAt plus a grace period rather than a fixed
+# delay from send: a cue scheduled 4 s out legitimately acks late, and judging
+# it on send time would report false drops on every lead-in.
+_pending_lock = threading.Lock()
+_pending = []                   # {"ip","cue","sent","due"}
+DROP_GRACE_S = 1.5              # after playAt (or after send, immediate cues)
+
+
+def _expect_ack(ip, cue, sent_at, play_at):
+    """Record that <ip> owes us a /debug/rx for <cue>."""
+    due = (play_at if play_at is not None else sent_at) + DROP_GRACE_S
+    with _pending_lock:
+        _pending.append({"ip": ip, "cue": str(cue), "sent": sent_at, "due": due})
+
+
+def _ack_seen(ip, cue):
+    """Clear expectations satisfied by an incoming /debug/rx."""
+    cue = str(cue)
+    with _pending_lock:
+        _pending[:] = [p for p in _pending
+                       if not (p["ip"] == ip and p["cue"] == cue)]
+
+
+def _drop_reaper():
+    """Emit /debug/drop for expectations that timed out unacked."""
+    while True:
+        time.sleep(0.5)
+        now = master_now()
+        overdue = []
+        with _pending_lock:
+            keep = []
+            for p in _pending:
+                (overdue if now > p["due"] else keep).append(p)
+            _pending[:] = keep
+        for p in overdue:
+            # src "server" so the page can tell an inference from a device report.
+            _debug_add("/debug/drop", [p["cue"], p["ip"], p["sent"]], "server")
+            print(f"  DROP  {p['cue']}  ->  {p['ip']}  (no ack after "
+                  f"{DROP_GRACE_S}s)")
+
+
 def debug_listener():
     """UDP :9002 - collect /debug/* reports from headsets & performer tablets."""
     from pythonosc import dispatcher, osc_server
@@ -251,7 +299,12 @@ def debug_listener():
     disp = dispatcher.Dispatcher()
 
     def handle(client_address, addr, *args):
-        _debug_add(addr, args, client_address[0])
+        ip = client_address[0]
+        # /debug/rx is [deviceId, cueId, recvMaster, playAt] — the ack that
+        # settles a pending expectation before the reaper can call it a drop.
+        if addr == "/debug/rx" and len(args) >= 2:
+            _ack_seen(ip, args[1])
+        _debug_add(addr, args, ip)
 
     disp.set_default_handler(handle, needs_reply_address=True)
     try:
@@ -522,6 +575,12 @@ class Handler(BaseHTTPRequestHandler):
                 udp_client.SimpleUDPClient(host, port).send_message(addr, value)
                 if addr != "/clock/master":   # periodic announces would drown the log
                     print(f"  OSC -> {host}:{port}  {addr}  {value!r}")
+            # Only real cues are worth watching for drops. Clock announces are
+            # fire-and-forget and are never acked, so expecting one would
+            # manufacture a drop every 5 seconds per device.
+            if str(addr).startswith("/audio/"):
+                _expect_ack(host, value, sent_at, play_at)
+
             # sentAt/playAt are master-clock seconds so the controller's debug
             # log can stamp sent messages on the same scale as device replies.
             resp = {"ok": True, "sentAt": sent_at}
@@ -549,8 +608,10 @@ def main():
     print(f"  Serving    : {ROOT}")
     print("  Press Ctrl+C to stop.\n")
     print(f"  Debug feed : UDP :{DEBUG_PORT}  /debug/* -> GET /debug/events")
+    print(f"  Drop watch : cue unacked {DROP_GRACE_S}s after playAt -> /debug/drop")
     threading.Thread(target=clock_responder, daemon=True).start()
     threading.Thread(target=debug_listener, daemon=True).start()
+    threading.Thread(target=_drop_reaper, daemon=True).start()
     ThreadingHTTPServer(("", PORT), Handler).serve_forever()
 
 

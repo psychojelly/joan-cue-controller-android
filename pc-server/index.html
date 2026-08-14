@@ -3064,6 +3064,7 @@ if (loadSettings().csvUrl) {
       <span style="font-size:10px; letter-spacing:1px; color:#d4af6a;">VIEW</span>
       <button id="dbg-view-log" style="background:#2a2d3a; border:1px solid #3a3d4a; color:#e8eaf2; border-radius:6px; cursor:pointer; padding:2px 10px; font-family:inherit; font-size:11px;">log</button>
       <button id="dbg-view-graph" style="background:none; border:1px solid #2a2d3a; color:#8f93a8; border-radius:6px; cursor:pointer; padding:2px 10px; font-family:inherit; font-size:11px;">graph</button>
+      <button id="dbg-drops-only" title="Show only cues a device never acknowledged" style="background:none; border:1px solid #2a2d3a; color:#8f93a8; border-radius:6px; cursor:pointer; padding:2px 10px; font-family:inherit; font-size:11px;">dropped only <span id="dbg-drop-count" style="color:#ff5f5f;"></span></button>
       <span style="font-size:10px; color:#6f7186;">mt = master-clock seconds · newest first</span>
     </div>
     <div id="dbg-series-sel" style="font-size:11px; padding:0 0 6px 0; display:flex; flex-wrap:wrap; gap:10px;">(no devices yet)</div>
@@ -3090,9 +3091,9 @@ if (loadSettings().csvUrl) {
   const targetSel = document.getElementById('dbg-target');
   const hudSel = document.getElementById('dbg-hud');
   const statusEl = document.getElementById('dbg-status');
-  let lastSeq = 0, open = false, view = 'log';
+  let lastSeq = 0, open = false, view = 'log', dropsOnly = false;
   const devices = {};           // id -> {ip, lastSeen(ms), hb:[...], kind, drift}
-  const lines = [];             // {dev, html} — dev = device id, undefined for control lines
+  const lines = [];             // {dev, kind, html} — dev = device id, undefined for control lines
   const acks = [];              // per-cue ack rollup: {key, cueId, scheduled, t, rx:{id:marginMs}}
   // Delay graph: per-device series of heartbeat transit times. Both stamps are
   // master-clock seconds (device send in the hb args, server receive on the
@@ -3221,10 +3222,12 @@ if (loadSettings().csvUrl) {
   function esc(s) { return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 
   function addLine(kind, text, mt, dev) {
-    const color = { rx:'#7ee08a', hb:'#5fb8c4', log:'#cfd2e0', ctl:'#d4af6a', err:'#e07a7a', raw:'#8f93a8' }[kind] || '#cfd2e0';
+    const color = { rx:'#7ee08a', hb:'#5fb8c4', log:'#cfd2e0', ctl:'#d4af6a', err:'#e07a7a', raw:'#8f93a8', drop:'#ff5f5f' }[kind] || '#cfd2e0';
     const stamp = mt !== undefined ? `<span style="color:#6f7186">mt ${Number(mt).toFixed(3)}</span> ` : '';
-    lines.unshift({ dev, html: `<div style="color:${color}">${stamp}${esc(text)}</div>` });
+    const weight = kind === 'drop' ? 'font-weight:700;' : '';
+    lines.unshift({ dev, kind, html: `<div style="color:${color};${weight}">${stamp}${esc(text)}</div>` });
     if (lines.length > 150) lines.pop();
+    refreshDropCount();
     renderLog();
   }
 
@@ -3232,8 +3235,11 @@ if (loadSettings().csvUrl) {
   // devices (control lines with no device always show).
   function renderLog() {
     if (!open) return;
-    const visible = lines.filter(l => l.dev === undefined || selSet.has(l.dev));
-    logEl.innerHTML = visible.map(l => l.html).join('');
+    let visible = lines.filter(l => l.dev === undefined || selSet.has(l.dev));
+    if (dropsOnly) visible = visible.filter(l => l.kind === 'drop');
+    logEl.innerHTML = visible.length
+      ? visible.map(l => l.html).join('')
+      : (dropsOnly ? '<div style="color:#7ee08a">no dropped cues — every cue was acked</div>' : '');
   }
 
   // Twin devices of the same model report the same name ("Beam-Pro"), so the
@@ -3303,6 +3309,25 @@ if (loadSettings().csvUrl) {
         let g = acks.find(x => x.key === key);
         if (!g) { g = { key, cueId: a[1], scheduled, t: ev.t, rx: {} }; acks.unshift(g); if (acks.length > 6) acks.pop(); }
         g.rx[dkey(a[0], ev.from)] = marginMs;
+        renderAcks();
+        break;
+      }
+      case '/debug/drop': {
+        // Inferred by the server, not reported by a device: [cueId, ip, sentAt].
+        // Deliberately NOT filtered by device selection — a drop means that
+        // device went quiet, so hiding it behind its own selector would bury
+        // exactly the event you are looking for.
+        addLine('drop', `DROPPED cue ${a[0]} → ${oct(a[1])}  (no ack)`, a[2]);
+        // Settle the matching rollup so it reads "dropped" instead of sitting
+        // amber and half-finished forever. If NO device acked, there is no
+        // group yet — create one, otherwise a totally lost cue would be the
+        // one case the rollup stays silent about.
+        let g = acks.find(x => String(x.cueId) === String(a[0]));
+        if (!g) {
+          g = { key: `${a[0]}|drop`, cueId: a[0], scheduled: false, t: ev.t, rx: {} };
+          acks.unshift(g); if (acks.length > 6) acks.pop();
+        }
+        (g.dropped = g.dropped || []).push(oct(a[1]));
         renderAcks();
         break;
       }
@@ -3390,6 +3415,12 @@ if (loadSettings().csvUrl) {
       const margins = g.scheduled
         ? ` (${got.map(id => `${g.rx[id].toFixed(0)}`).join(' / ')}ms)`
         : ' (immediate)';
+      // A group with confirmed drops is settled, not still-waiting — say so
+      // in red rather than leaving an amber "…" that never resolves.
+      const drops = g.dropped || [];
+      if (drops.length) {
+        return `<div style="color:#ff5f5f; font-weight:700">✖ cue <b>${esc(g.cueId)}</b> → ${n}/${n + drops.length} received · DROPPED by ${esc(drops.join(', '))}</div>`;
+      }
       const color = full ? '#7ee08a' : '#e0b060';
       return `<div style="color:${color}">${full ? '✔' : '…'} cue <b>${esc(g.cueId)}</b> → ${n}/${N} received${esc(margins)}</div>`;
     }).join('');
@@ -3425,6 +3456,25 @@ if (loadSettings().csvUrl) {
   }
   viewLogBtn.addEventListener('click', () => setView('log'));
   viewGraphBtn.addEventListener('click', () => setView('graph'));
+
+  // ── "dropped only" filter ────────────────────────────────────────────────
+  // A drop is rare and buried: at ~4 heartbeats/second per device the log
+  // scrolls a missing cue off screen in seconds. This narrows the same feed to
+  // just the drops so a show can be audited after the fact.
+  const dropsBtn = document.getElementById('dbg-drops-only');
+  const dropCountEl = document.getElementById('dbg-drop-count');
+  dropsBtn.addEventListener('click', () => {
+    dropsOnly = !dropsOnly;
+    dropsBtn.style.cssText += ';' + (dropsOnly
+      ? 'background:#3a1e1e; border:1px solid #ff5f5f; color:#ff9f9f;'
+      : 'background:none; border:1px solid #2a2d3a; color:#8f93a8;');
+    if (dropsOnly) setView('log');
+    renderLog();
+  });
+  function refreshDropCount() {
+    const n = lines.filter(l => l.kind === 'drop').length;
+    dropCountEl.textContent = n ? `(${n})` : '';
+  }
 
   function renderSeriesSel() {
     const ids = Object.keys(devices).sort();
