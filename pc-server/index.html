@@ -3073,6 +3073,17 @@ if (loadSettings().csvUrl) {
         <select id="dbg-metric" title="Which per-device vital the graph plots, one heartbeat per point" style="background:#12141d; border:1px solid #2a2d3a; color:#d4af6a; border-radius:5px; font-family:inherit; font-size:10px; letter-spacing:1px; padding:1px 4px;">
           <option value="ms">DEVICE DELAY</option>
           <option value="fps">FRAME RATE</option>
+          <option value="frame">FRAME TIME ms</option>
+          <option value="worst">WORST FRAME ms</option>
+          <option value="gpu">GPU ms</option>
+          <option value="cpu">CPU MAIN ms</option>
+          <option value="rend">CPU RENDER ms</option>
+          <option value="parts">PARTICLES</option>
+          <option value="vfx">ACTIVE VFX</option>
+          <option value="rends">ACTIVE RENDERERS</option>
+          <option value="mats">UNIQUE MATERIALS</option>
+          <option value="lights">ACTIVE LIGHTS</option>
+          <option value="ram">RAM MB</option>
           <option value="batt">BATTERY</option>
         </select>
         <span id="dbg-graph-sub" style="color:#6f7186; letter-spacing:0;">(heartbeat transit, ms — device send → server receive on the master clock)</span>
@@ -3288,10 +3299,21 @@ if (loadSettings().csvUrl) {
         {
           const key = dkey(a[0], ev.from);
           const synced = Number(a[4]) !== -1;
+          // [8..] are the perf block. Frame time is plotted in MILLISECONDS
+          // rather than fps because the point of the graph is to size a change:
+          // 11→15 fps looks like "+4" but is a 24 ms saving, while the same +4
+          // at 55→59 fps is 1.2 ms. gpuMs is null when the driver won't report
+          // it, so the line breaks instead of drawing a misleading zero.
+          const num = (i) => (a.length > i && Number(a[i]) >= 0) ? Number(a[i]) : null;
           const pt = { t: ev.t,
                        ms: synced ? (ev.t - Number(a[1])) * 1000 : null,
                        fps: (a.length > 5 && Number(a[5]) >= 0) ? Number(a[5]) : null,
-                       batt: (a.length > 6 && Number(a[6]) >= 0) ? Number(a[6]) : null };
+                       batt: (a.length > 6 && Number(a[6]) >= 0) ? Number(a[6]) : null,
+                       frame: num(8), worst: num(9),
+                       cpu: num(10), rend: num(11),
+                       gpu: (a.length > 12 && Number(a[12]) > 0) ? Number(a[12]) : null,
+                       parts: num(13), vfx: num(14), ram: num(15),
+                       rends: num(16), mats: num(17), lights: num(18) };
           if (!series[key]) series[key] = [];
           series[key].push(pt);
           if (series[key].length > 400) series[key].shift();
@@ -3434,6 +3456,17 @@ if (loadSettings().csvUrl) {
   const METRIC_SUBS = {
     ms:   '(heartbeat transit, ms — device send → server receive on the master clock)',
     fps:  '(smoothed render frame rate per device — dips = thermal throttle / heavy scene)',
+    frame:'(MEDIAN frame time, ms — lower is better. Use this, not fps, to size a change)',
+    worst:'(WORST frame in the last ~2s, ms — separates a hitch from sustained load)',
+    gpu:  '(GPU time per frame, ms — if this tracks frame time, the fix is fewer/cheaper pixels)',
+    cpu:  '(CPU main thread, ms — if this tracks frame time, the fix is script/draw-call work)',
+    rend: '(CPU render thread, ms — high here usually means too many draw calls)',
+    parts:'(live particles across all active VFX — a weak proxy: overdraw is pixels × layers)',
+    vfx:  '(active VisualEffect components — how much of the scene is live at once)',
+    rends:'(active Renderers — render scale changed nothing, so per-object work is the suspect)',
+    mats: '(unique materials in view — each one is a state change the batcher cannot merge away)',
+    lights:'(active Lights — every extra realtime light multiplies per-object cost)',
+    ram:  '(total allocated, MB — expected flat; a climb means a leak, not a frame-rate cause)',
     batt: '(battery %, ⚡ in roster = charging — plan swaps before a show)'
   };
   metricSel.addEventListener('change', () => {
@@ -3519,7 +3552,10 @@ if (loadSettings().csvUrl) {
     //   fps  frame rate (scale floor 60 so healthy = high on the chart)
     //   batt battery % (fixed 0–100 scale)
     const metric = metricSel.value;
-    const unit = metric === 'ms' ? 'ms' : metric === 'fps' ? 'fps' : '%';
+    const UNITS = { ms:'ms', frame:'ms', worst:'ms', gpu:'ms', cpu:'ms', rend:'ms',
+                    fps:'fps', parts:'', vfx:'', rends:'', mats:'', lights:'',
+                    ram:'MB', batt:'%' };
+    const unit = UNITS[metric] !== undefined ? UNITS[metric] : '%';
     const sel = Object.keys(series).filter(id => selSet.has(id));
     const all = sel.flatMap(id => series[id]).filter(p => p[metric] !== null && p[metric] !== undefined);
     ctx.font = '10px ui-monospace, Consolas, monospace';
@@ -3561,7 +3597,9 @@ if (loadSettings().csvUrl) {
       const last = v.pts[v.pts.length - 1];
       ctx.fillStyle = seriesColor(v.id);
       ctx.beginPath(); ctx.arc(X(last.t), Y(last[metric]), 2.5, 0, Math.PI * 2); ctx.fill();
-      const lbl = metric === 'ms' ? `${last.ms.toFixed(1)}ms` : `${last[metric].toFixed(0)}${unit}`;
+      // Sub-ms detail matters for every time-based metric, not just transit —
+      // rounding 8.4ms to "8" hides exactly the differences being hunted.
+      const lbl = unit === 'ms' ? `${last[metric].toFixed(1)}ms` : `${last[metric].toFixed(0)}${unit}`;
       ctx.fillText(lbl, Math.min(X(last.t) + 5, w - 44), Y(last[metric]) - 4);
     });
   }
