@@ -292,6 +292,113 @@ def _drop_reaper():
                   f"{DROP_GRACE_S}s)")
 
 
+# ---- QLab bridge -----------------------------------------------------------
+# QLab speaks OSC; the controller page speaks HTTP. This listener lets QLab (or
+# anything else that sends OSC) fire a cue through exactly the same path the
+# page uses, so scheduling, the 3x redundancy, the ack roster and drop detection
+# all still apply.
+#
+# QLab is deliberately NOT pointed straight at the headsets. A QLab network cue
+# sends one message, once, with no timestamp — which would lose both the
+# redundancy and the scheduled playAt that keeps multiple headsets in sync with
+# each other. Sending to this server instead keeps QLab as the operator surface
+# while the server stays the delivery engine.
+QLAB_PORT = 53000
+
+# Where to send. The page holds the IP list in browser storage, so the server
+# has to work it out: any device that has reported in recently is live and
+# wants cues. A devices.txt beside this file (one IP per line) overrides that,
+# for the case where nothing has reported yet — a cold start with no page open
+# would otherwise have an empty roster and silently cue nobody.
+DEVICES_FILE = os.path.join(ROOT, "devices.txt")
+DEVICE_SEEN_SECONDS = 30.0
+
+
+def _configured_devices():
+    try:
+        with open(DEVICES_FILE) as f:
+            return [l.strip() for l in f
+                    if l.strip() and not l.strip().startswith("#")]
+    except Exception:
+        return []
+
+
+def _live_devices():
+    """IPs that have sent us any /debug/* traffic recently."""
+    cutoff = master_now() - DEVICE_SEEN_SECONDS
+    with _debug_lock:
+        return sorted({e["from"] for e in _debug_events
+                       if e["t"] >= cutoff and e["from"] not in ("server",)})
+
+
+def qlab_targets():
+    cfg = _configured_devices()
+    return cfg if cfg else _live_devices()
+
+
+def qlab_listener():
+    """UDP :53000 — let QLab drive the show.
+
+    Accepts the cue id three ways, because which one is convenient depends on
+    how the operator built the QLab cue, and a test that fails purely on
+    message shape teaches nothing:
+
+        /joan/cue  "B_201"      argument
+        /joan/cue/B_201         in the address, no argument
+        /audio/cue "B_201"      identical to what the headsets themselves take
+    """
+    from pythonosc import dispatcher, osc_server
+
+    def fire(addr, *args):
+        cue = None
+        if args and str(args[0]).strip():
+            cue = str(args[0]).strip()
+        elif addr.count("/") >= 3:
+            cue = addr.rsplit("/", 1)[-1]        # /joan/cue/B_201
+        if not cue:
+            _server_log("warn", f"QLab sent {addr} with no cue id")
+            return
+
+        targets = qlab_targets()
+        if not targets:
+            _server_log("error", "QLab cue ignored — no devices known. Open the "
+                                 "controller page once, or add IPs to devices.txt")
+            return
+
+        port = 7000
+        lead_ms = 400
+        for host in targets:
+            try:
+                sent_at = master_now()
+                _expect_ack(host, cue, sent_at, sent_at + lead_ms / 1000.0)
+                my_ip = local_ip_for(host)
+                if my_ip:
+                    send_osc(host, port, "/clock/master", [my_ip])
+                sent_at = master_now()
+                play_at = sent_at + lead_ms / 1000.0
+                for i in range(3):
+                    send_osc(host, port, "/audio/cue", [cue, play_at])
+                    if i < 2:
+                        time.sleep(0.05)
+            except Exception as e:
+                _server_log("error", f"QLab fan-out to {host} failed: {e}")
+        print(f"  QLAB -> {cue}  to {len(targets)} device(s): {', '.join(targets)}")
+        _debug_add("/debug/log", ["QLAB", master_now(), "info",
+                                  f"cue {cue} -> {len(targets)} device(s)"], "server")
+
+    disp = dispatcher.Dispatcher()
+    disp.map("/joan/cue", fire)
+    disp.map("/joan/cue/*", fire)
+    disp.map("/audio/cue", fire)
+    disp.set_default_handler(lambda a, *x: _server_log(
+        "warn", f"QLab sent an unhandled address: {a}"))
+    try:
+        srv = osc_server.BlockingOSCUDPServer(("0.0.0.0", QLAB_PORT), disp)
+        srv.serve_forever()
+    except Exception as e:
+        print(f"  QLab listener error: {e}")
+
+
 def debug_listener():
     """UDP :9002 - collect /debug/* reports from headsets & performer tablets."""
     from pythonosc import dispatcher, osc_server
@@ -557,6 +664,18 @@ class Handler(BaseHTTPRequestHandler):
         try:
             play_at = None
             sent_at = master_now()   # master-clock send time (for the debug logger)
+
+            # Register the expectation BEFORE the packet goes out. A headset on
+            # the same LAN acks in a couple of milliseconds, while the send path
+            # below sleeps 100ms between its three repeats — so registering
+            # afterwards means the ack arrives first, finds nothing to clear,
+            # and the expectation is then created already orphaned. That raced
+            # every single time, reporting a drop for every cue that in fact
+            # arrived perfectly.
+            if str(addr).startswith("/audio/"):
+                lead_s = (float(lead_ms) / 1000.0) if schedule else 0.0
+                _expect_ack(host, value, sent_at, sent_at + lead_s if schedule else None)
+
             if schedule:
                 # Announce the master's IP so receivers (Unity) know where to
                 # send /clock/ping — the tablet app auto-learns from the packet
@@ -575,12 +694,6 @@ class Handler(BaseHTTPRequestHandler):
                 udp_client.SimpleUDPClient(host, port).send_message(addr, value)
                 if addr != "/clock/master":   # periodic announces would drown the log
                     print(f"  OSC -> {host}:{port}  {addr}  {value!r}")
-            # Only real cues are worth watching for drops. Clock announces are
-            # fire-and-forget and are never acked, so expecting one would
-            # manufacture a drop every 5 seconds per device.
-            if str(addr).startswith("/audio/"):
-                _expect_ack(host, value, sent_at, play_at)
-
             # sentAt/playAt are master-clock seconds so the controller's debug
             # log can stamp sent messages on the same scale as device replies.
             resp = {"ok": True, "sentAt": sent_at}
@@ -609,9 +722,11 @@ def main():
     print("  Press Ctrl+C to stop.\n")
     print(f"  Debug feed : UDP :{DEBUG_PORT}  /debug/* -> GET /debug/events")
     print(f"  Drop watch : cue unacked {DROP_GRACE_S}s after playAt -> /debug/drop")
+    print(f"  QLab       : UDP :{QLAB_PORT}  /joan/cue <id>  -> scheduled fan-out")
     threading.Thread(target=clock_responder, daemon=True).start()
     threading.Thread(target=debug_listener, daemon=True).start()
     threading.Thread(target=_drop_reaper, daemon=True).start()
+    threading.Thread(target=qlab_listener, daemon=True).start()
     ThreadingHTTPServer(("", PORT), Handler).serve_forever()
 
 

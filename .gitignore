@@ -14,3 +14,6 @@ captures/
 app/keystore.properties
 app/*.keystore
 *.jks
+
+# Local device roster for the QLab bridge — site-specific, not shared.
+pc-server/devices.txt
