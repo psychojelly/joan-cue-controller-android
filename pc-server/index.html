@@ -3938,22 +3938,42 @@ if (loadSettings().csvUrl) {
     const norm = (v) => (typeof audioGroupKey === 'function')
       ? audioGroupKey(v) : String(v);
     const wanted = norm(name);
-    const found = (function find(n) {
+    // Collect the ancestors on the way down, so the groups containing the
+    // cue can be opened. A marker on a row inside a collapsed group is set
+    // correctly and shows nothing, which reads as "the feature is broken".
+    const trail = [];
+    const found = (function find(n, path) {
       if (!n) return null;
-      if (!n.children && norm(n.number) === wanted) return n;
-      for (const c of (n.children || [])) { const hit = find(c); if (hit) return hit; }
+      if (!n.children && norm(n.number) === wanted) { trail.push(...path); return n; }
+      for (const c of (n.children || [])) {
+        const hit = find(c, path.concat(n));
+        if (hit) return hit;
+      }
       return null;
-    })(cueRoot);
+    })(cueRoot, []);
     // Unknown ids (a typo, or a cue fired from a newer CSV than this page
     // has loaded) leave the highlight alone rather than clearing it — losing
     // the marker entirely is a worse failure than it lagging by one cue.
     if (!found || found.id === playingId) return;
     playingId = found.id;
+    // Open only the groups on the way to this cue — not the whole tree.
+    // Expanding everything would throw away the operator's own view of the
+    // list every time a cue fires, which during a run is worse than a
+    // marker they have to go looking for.
+    for (const g of trail) if (g && g.children) g.expanded = true;
     // Re-render only on an actual change: acks arrive once per device, and
     // six headsets redrawing a 176-row list six times per cue is visible.
     if (typeof renderCueList === 'function') renderCueList();
     if (typeof refreshActiveSidebar === 'function') refreshActiveSidebar();
     if (typeof renderStemsTable === 'function') renderStemsTable();
+
+    // Bring it into view, but only if it is off screen. 'nearest' does
+    // nothing when the row is already visible, so an operator reading the
+    // list a few rows away is not yanked around on every cue.
+    const row = document.querySelector('.playing');
+    if (row && typeof row.scrollIntoView === 'function') {
+      row.scrollIntoView({ block: 'nearest' });
+    }
   }
 
   const two = (n) => String(n).padStart(2, '0');
