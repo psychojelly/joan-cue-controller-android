@@ -56,14 +56,24 @@ fi
 # the clock master (UDP 9001) and debug listener (UDP 9002) fail to bind,
 # so scheduled-cue timing and every device report break silently. That is
 # considerably worse than not starting — it looks fine until the show.
-if lsof -nP -iTCP:8765 -sTCP:LISTEN >/dev/null 2>&1; then
+#
+# The UDP ports are checked too, and that is the part that matters. A
+# stray server on a DIFFERENT web port still holds 9001/9002, so 8765
+# looks free and this one starts straight into the broken state. That
+# exact case cost an hour on 15 Aug: cues fired, the headset played them,
+# and every report went to a dead process while the roster sat empty.
+if lsof -nP -iTCP:8765 -sTCP:LISTEN >/dev/null 2>&1 \
+   || lsof -nP -iUDP:9001 >/dev/null 2>&1 \
+   || lsof -nP -iUDP:9002 >/dev/null 2>&1; then
   echo
-  echo "  [!] A cue server is ALREADY running on port 8765."
+  echo "  [!] A cue server is ALREADY running (port 8765, 9001 or 9002)."
   echo
   echo "      Starting a second one would half-work: the page loads, but"
   echo "      cue timing and device reporting break silently."
   echo
-  echo "      Quit the other server window, then run this again."
+  echo "      Quit the other server window, then run this again. Note it"
+  echo "      may be on a different web port and still hold UDP 9001/9002."
+  echo "      Find it with:  lsof -nP -iUDP:9001 -iUDP:9002"
   echo "      Already-open controller: http://localhost:8765"
   echo
   read -r -p "Press Return to close."

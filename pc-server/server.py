@@ -450,8 +450,13 @@ def qlab_listener():
         print(f"  QLab listener error: {e}")
 
 
-def debug_listener():
-    """UDP :9002 - collect /debug/* reports from headsets & performer tablets."""
+def build_debug_listener():
+    """UDP :9002 - collect /debug/* reports from headsets & performer tablets.
+
+    BUILDS the server rather than running it, so the bind happens in the main
+    thread where a failure can stop startup. See _die_port_in_use for why that
+    matters more than it looks.
+    """
     from pythonosc import dispatcher, osc_server
 
     disp = dispatcher.Dispatcher()
@@ -465,17 +470,14 @@ def debug_listener():
         _debug_add(addr, args, ip)
 
     disp.set_default_handler(handle, needs_reply_address=True)
-    try:
-        server = osc_server.BlockingOSCUDPServer(("0.0.0.0", DEBUG_PORT), disp)
-        server.serve_forever()
-    except Exception as e:
-        print(f"  debug listener error: {e}")
+    return osc_server.BlockingOSCUDPServer(("0.0.0.0", DEBUG_PORT), disp)
 
 
-def clock_responder():
-    """UDP :9001 — answer /clock/ping [seq] with /clock/pong [seq, masterTime]."""
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind(("", CLOCK_PORT))
+def clock_responder(sock):
+    """UDP :9001 — answer /clock/ping [seq] with /clock/pong [seq, masterTime].
+
+    Takes an already-bound socket for the same reason as the debug listener.
+    """
     while True:
         try:
             data, addr = sock.recvfrom(512)
@@ -828,6 +830,41 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
 
+def _die_port_in_use(port, what, err):
+    """Stop dead when a listener port is taken, instead of carrying on deaf.
+
+    Every listener used to bind inside its own daemon thread and print a single
+    line on failure, which scrolled away behind the startup banner. What that
+    produced was a server that served the controller page perfectly while being
+    unable to hear anything: cues went OUT fine, so the show appeared to work,
+    but no heartbeat, no acknowledgement and no device ever reached it. The
+    roster sat empty and the drop detector blamed the headsets for a fault that
+    was entirely on this machine.
+
+    That is worse than refusing to start, because every visible signal says the
+    system is healthy. It cost an hour to find once. Mid-show it would cost the
+    show. So: refuse, and say exactly what to do about it.
+    """
+    print()
+    print("=" * 70)
+    print(f"  CANNOT START - UDP port {port} is already in use.")
+    print()
+    print(f"  That port carries {what}.")
+    print()
+    print("  Almost always this is another cue server still running - an old")
+    print("  window, or one started on a different HTTP port so it did not")
+    print("  look like a conflict. Close it, then start this one again.")
+    print()
+    print("  Find it:")
+    print("    Windows   netstat -ano | findstr \":900\"")
+    print("    macOS     lsof -nP -iUDP:9001 -iUDP:9002")
+    print()
+    print(f"  ({err})")
+    print("=" * 70)
+    print()
+    raise SystemExit(1)
+
+
 def main():
     print("Joan of the City - Fused OSC Cue Server")
     print(f"  Controller : http://localhost:{PORT}/")
@@ -839,12 +876,37 @@ def main():
     print(f"  Debug feed : UDP :{DEBUG_PORT}  /debug/* -> GET /debug/events")
     print(f"  Drop watch : cue unacked {DROP_GRACE_S}s after playAt -> /debug/drop")
     print(f"  QLab       : UDP :{QLAB_PORT}  /joan/cue <id>  -> scheduled fan-out")
-    threading.Thread(target=clock_responder, daemon=True).start()
-    threading.Thread(target=debug_listener, daemon=True).start()
+    # Bind the two ports the SHOW depends on before anything else, so a
+    # conflict is a refusal rather than a silent deafness.
+    clock_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        clock_sock.bind(("", CLOCK_PORT))
+    except OSError as e:
+        _die_port_in_use(CLOCK_PORT, "clock sync - without it, scheduled cues "
+                                     "do not land together across headsets", e)
+    try:
+        debug_srv = build_debug_listener()
+    except OSError as e:
+        _die_port_in_use(DEBUG_PORT, "every report coming back from the devices: "
+                                     "the roster, heartbeats, and the cue "
+                                     "acknowledgements the drop detector needs", e)
+
+    threading.Thread(target=clock_responder, args=(clock_sock,), daemon=True).start()
+    threading.Thread(target=debug_srv.serve_forever, daemon=True).start()
     threading.Thread(target=_drop_reaper, daemon=True).start()
     load_presets()
     threading.Thread(target=qlab_listener, daemon=True).start()
-    ThreadingHTTPServer(("", PORT), Handler).serve_forever()
+
+    try:
+        ThreadingHTTPServer(("", PORT), Handler).serve_forever()
+    except OSError as e:
+        # The HTTP port is the one people already understand, so this stays a
+        # plain message rather than the full banner above.
+        print()
+        print(f"  CANNOT START - HTTP port {PORT} is already in use ({e}).")
+        print(f"  A controller is probably already open at http://localhost:{PORT}/")
+        print()
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

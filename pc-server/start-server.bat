@@ -32,16 +32,24 @@ if errorlevel 1 (
 REM Refuse to start on top of a server that is already running. Without this the
 REM second instance HALF-starts: the web page works, but the clock master
 REM ^(UDP 9001^) and debug listener ^(UDP 9002^) fail to bind, so scheduled-sync
-REM timing and device reporting break silently — much worse than not starting.
-powershell -NoProfile -Command "if (Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue) { exit 1 } else { exit 0 }"
+REM timing and device reporting break silently - much worse than not starting.
+REM
+REM Checks the UDP ports as well as 8765, and that is the important part. A
+REM stray server started on a DIFFERENT http port still holds 9001/9002, so
+REM 8765 looks free and this one starts straight into the broken state. That
+REM exact case cost an hour on 15 Aug: cues fired, the headset played them,
+REM and every report went to a dead process while the roster sat empty.
+powershell -NoProfile -Command "if ((Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue) -or (Get-NetUDPEndpoint -LocalPort 9001 -ErrorAction SilentlyContinue) -or (Get-NetUDPEndpoint -LocalPort 9002 -ErrorAction SilentlyContinue)) { exit 1 } else { exit 0 }"
 if errorlevel 1 (
   echo.
-  echo  [!] A cue server is ALREADY running on port 8765.
+  echo  [!] A cue server is ALREADY running ^(port 8765, 9001 or 9002^).
   echo.
   echo      Starting a second one would half-work: the page loads, but cue
   echo      timing and device reporting break silently.
   echo.
-  echo      Close the other server window, then run this again.
+  echo      Close the other server window, then run this again. Note it may
+  echo      be on a different web port and still be holding UDP 9001/9002.
+  echo      Find it with:  netstat -ano ^| findstr ":900"
   echo      Already-open controller: http://localhost:8765
   echo.
   pause
