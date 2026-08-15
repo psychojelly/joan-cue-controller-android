@@ -3051,6 +3051,48 @@ if (loadSettings().csvUrl) {
     <div style="font-size:10px; letter-spacing:1px; color:#d4af6a; margin-bottom:6px;">DEVICES</div>
     <div id="dbg-roster" style="font-size:11.5px; line-height:1.7;">(none yet — turn on reporting + heartbeat)</div>
   </div>
+  <!-- Audio reactivity. Lives beside the cue acks because it is adjusted the
+       same way they are read: fire a cue, watch the headset, turn the knob.
+       Values apply to every selected device immediately — there is no apply
+       button, because the whole point is to see the change while the cue is
+       still running. -->
+  <div style="padding:10px 14px; border-bottom:1px solid #2a2d3a;">
+    <div style="font-size:10px; letter-spacing:1px; color:#d4af6a; margin-bottom:6px;">
+      AUDIO REACTIVITY <span style="color:#6f7186">(live — adjust while a cue plays)</span>
+    </div>
+    <div style="display:flex; flex-direction:column; gap:7px;">
+      <label style="display:flex; align-items:center; gap:8px; font-size:11.5px;">
+        <span style="width:74px; color:#8f93a8;">Intensity</span>
+        <input id="ar-gain" type="range" min="0" max="300" value="100" style="flex:1; accent-color:#d4af6a;">
+        <span id="ar-gain-v" style="width:44px; text-align:right; font-family:ui-monospace,monospace; color:#d4af6a;">100%</span>
+      </label>
+      <label style="display:flex; align-items:center; gap:8px; font-size:11.5px;">
+        <span style="width:74px; color:#8f93a8;">Gate (low)</span>
+        <input id="ar-low" type="range" min="0" max="100" value="0" style="flex:1; accent-color:#5fb8c4;">
+        <span id="ar-low-v" style="width:44px; text-align:right; font-family:ui-monospace,monospace; color:#5fb8c4;">0%</span>
+      </label>
+      <label style="display:flex; align-items:center; gap:8px; font-size:11.5px;">
+        <span style="width:74px; color:#8f93a8;">Ceiling</span>
+        <input id="ar-high" type="range" min="1" max="200" value="100" style="flex:1; accent-color:#5fb8c4;">
+        <span id="ar-high-v" style="width:44px; text-align:right; font-family:ui-monospace,monospace; color:#5fb8c4;">100%</span>
+      </label>
+      <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+        <button id="ar-pin" title="Remember this intensity for the cue that is playing now"
+          style="background:#2a2d3a; border:1px solid #3a3d4a; color:#e8eaf2; border-radius:6px; cursor:pointer; padding:3px 10px; font-family:inherit; font-size:11px;">📌 Pin to current cue</button>
+        <button id="ar-dump" title="Print every pinned value to the device log"
+          style="background:none; border:1px solid #2a2d3a; color:#8f93a8; border-radius:6px; cursor:pointer; padding:3px 10px; font-family:inherit; font-size:11px;">List pinned</button>
+        <button id="ar-reset" title="Back to 100% / 0 / 100"
+          style="background:none; border:1px solid #2a2d3a; color:#8f93a8; border-radius:6px; cursor:pointer; padding:3px 10px; font-family:inherit; font-size:11px;">Reset</button>
+        <button id="ar-export" title="Download audio-presets.json — the pinned values only, never the cue sheet"
+          style="background:none; border:1px solid #2a2d3a; color:#8f93a8; border-radius:6px; cursor:pointer; padding:3px 10px; font-family:inherit; font-size:11px;">⬇ Export</button>
+        <button id="ar-import" title="Load an audio-presets.json someone else saved"
+          style="background:none; border:1px solid #2a2d3a; color:#8f93a8; border-radius:6px; cursor:pointer; padding:3px 10px; font-family:inherit; font-size:11px;">⬆ Import</button>
+        <input id="ar-file" type="file" accept="application/json,.json" style="display:none;">
+        <span id="ar-status" style="font-size:11px; color:#6f7186;"></span>
+      </div>
+    </div>
+  </div>
+
   <div style="padding:10px 14px; border-bottom:1px solid #2a2d3a;">
     <div style="font-size:10px; letter-spacing:1px; color:#d4af6a; margin-bottom:6px;">CUE ACKS <span style="color:#6f7186">(devices received / roster · scheduling margins)</span></div>
     <div id="dbg-acks" style="font-size:11.5px; line-height:1.7;">(fire a cue with reporting on)</div>
@@ -3489,6 +3531,145 @@ if (loadSettings().csvUrl) {
   }
   viewLogBtn.addEventListener('click', () => setView('log'));
   viewGraphBtn.addEventListener('click', () => setView('graph'));
+
+  // ── Audio reactivity sliders ─────────────────────────────────────────────
+  // Sent through the same /send path as cues, so they reach exactly the
+  // devices the current audience selection covers — adjusting a headset that
+  // is not in the show would be worse than useless.
+  //
+  // Throttled while dragging: a range input fires continuously, and one UDP
+  // packet per pixel of travel would flood the same link the cues use. 60ms is
+  // fast enough to feel live and slow enough to stay out of the way.
+  {
+    const AR_URL = location.protocol.startsWith('http') ? '/send' : 'http://127.0.0.1:8765/send';
+    let arTimer = null, arPending = {};
+
+    function arSend(address, value) {
+      arPending[address] = value;
+      if (arTimer) return;
+      arTimer = setTimeout(() => {
+        arTimer = null;
+        const batch = arPending; arPending = {};
+        const port = parseInt(document.getElementById('port').value, 10) || 7000;
+        const ips = (typeof loadIPs === 'function') ? loadIPs() : [];
+        const st = document.getElementById('ar-status');
+        if (!ips.length) {
+          if (st) st.textContent = 'no devices selected';
+          return;
+        }
+        for (const [addr, val] of Object.entries(batch)) {
+          for (const ip of ips) {
+            fetch(AR_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ host: ip, port, address: addr, value: val }) }).catch(() => {});
+          }
+        }
+        if (st) st.textContent = `sent to ${ips.length} device${ips.length > 1 ? 's' : ''}`;
+      }, 60);
+    }
+
+    function arWire(id, addr, suffix) {
+      const el = document.getElementById(id);
+      const out = document.getElementById(id + '-v');
+      if (!el) return;
+      el.addEventListener('input', () => {
+        if (out) out.textContent = el.value + suffix;
+        arSend(addr, parseInt(el.value, 10));
+      });
+    }
+    arWire('ar-gain', '/debug/audiogain', '%');
+    arWire('ar-low',  '/debug/audiolow',  '%');
+    arWire('ar-high', '/debug/audiohigh', '%');
+
+    // ── pinned values live on the SERVER, in their own file ──────────────────
+    // Not on the headset, and explicitly not in the cue sheet. The cue sheet is
+    // the show's shared score, read by every device — nothing here writes to it.
+    // Keeping the settings server-side instead means a value found on one
+    // headset applies to all six, survives the app closing, and is re-applied
+    // whether the show is driven from this page or from QLab. It is one small
+    // file, audio-presets.json, which can be mailed to someone or committed.
+    const PRESET_URL = location.protocol.startsWith('http')
+      ? '/audio-presets' : 'http://127.0.0.1:8765/audio-presets';
+    const arStatus = (msg) => {
+      const st = document.getElementById('ar-status');
+      if (st) st.textContent = msg;
+    };
+
+    const pin = document.getElementById('ar-pin');
+    if (pin) pin.addEventListener('click', () => {
+      const pct = parseInt(document.getElementById('ar-gain').value, 10);
+      arSend('/debug/audiocue', pct);                       // the headsets, now
+      fetch(PRESET_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ pin: pct }) })
+        .then(r => r.json())
+        .then(j => arStatus(j.ok ? `${pct}% pinned to ${j.cue} · ${j.count} saved`
+                                 : (j.error || 'could not pin')))
+        .catch(() => arStatus('pinned on device only — server unreachable'));
+    });
+
+    const exportBtn = document.getElementById('ar-export');
+    if (exportBtn) exportBtn.addEventListener('click', () => {
+      fetch(PRESET_URL).then(r => r.json()).then(j => {
+        const n = Object.keys(j.cues || {}).length;
+        if (!n) { arStatus('nothing pinned yet — nothing to export'); return; }
+        const blob = new Blob([JSON.stringify(j, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'audio-presets.json';
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+        arStatus(`exported ${n} cue${n > 1 ? 's' : ''}`);
+      }).catch(() => arStatus('export failed — server unreachable'));
+    });
+
+    const importBtn = document.getElementById('ar-import');
+    const fileEl = document.getElementById('ar-file');
+    if (importBtn && fileEl) {
+      importBtn.addEventListener('click', () => fileEl.click());
+      fileEl.addEventListener('change', () => {
+        const f = fileEl.files && fileEl.files[0];
+        if (!f) return;
+        f.text().then(txt => {
+          let data;
+          try { data = JSON.parse(txt); }
+          catch (e) { arStatus('not a valid presets file'); return; }
+          const cues = data.cues || data;      // tolerate a bare {cue: pct} map
+          const n = Object.keys(cues).length;
+          // Importing replaces the whole set, so say what is being lost before
+          // it is lost — a rehearsal's worth of pinned values is easy to
+          // overwrite and impossible to get back by guessing.
+          if (!confirm(`Replace the saved presets with ${n} cue(s) from ${f.name}?`)) return;
+          fetch(PRESET_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ cues }) })
+            .then(r => r.json())
+            .then(j => arStatus(`imported ${j.count} cue${j.count === 1 ? '' : 's'}`))
+            .catch(() => arStatus('import failed — server unreachable'));
+        });
+        fileEl.value = '';
+      });
+    }
+
+    // On open, say how many cues already carry a setting — otherwise the panel
+    // looks empty even when the show is already running with saved values.
+    fetch(PRESET_URL).then(r => r.json()).then(j => {
+      const n = Object.keys(j.cues || {}).length;
+      if (n) arStatus(`${n} cue${n > 1 ? 's' : ''} saved`);
+    }).catch(() => {});
+
+    const dump = document.getElementById('ar-dump');
+    if (dump) dump.addEventListener('click', () => arSend('/debug/audiodump', 1));
+    const reset = document.getElementById('ar-reset');
+    if (reset) reset.addEventListener('click', () => {
+      const g = document.getElementById('ar-gain'), l = document.getElementById('ar-low'),
+            h = document.getElementById('ar-high');
+      g.value = 100; l.value = 0; h.value = 100;
+      document.getElementById('ar-gain-v').textContent = '100%';
+      document.getElementById('ar-low-v').textContent = '0%';
+      document.getElementById('ar-high-v').textContent = '100%';
+      arSend('/debug/audiogain', 100);
+      arSend('/debug/audiolow', 0);
+      arSend('/debug/audiohigh', 100);
+    });
+  }
 
   // ── "dropped only" filter ────────────────────────────────────────────────
   // A drop is rare and buried: at ~4 heartbeats/second per device the log

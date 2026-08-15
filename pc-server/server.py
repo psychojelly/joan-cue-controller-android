@@ -292,6 +292,53 @@ def _drop_reaper():
                   f"{DROP_GRACE_S}s)")
 
 
+# ---- audio reactivity presets ----------------------------------------------
+# Per-cue reactive intensity, kept HERE rather than on the headsets.
+#
+# A value discovered on one headset is useless to the other five, and a value
+# that lives only in a device's memory dies with the app. Holding the map on the
+# server means every device gets it, it survives restarts, it applies whether
+# the show is driven from the controller page or from QLab, and it is a plain
+# file that can be committed and handed to someone else.
+#
+# Applied at send time: when a cue goes out and a preset exists for it, the
+# intensity is set on that device immediately before the cue itself, so the
+# effect is already correct on the frame the cue lands.
+PRESETS_FILE = os.path.join(ROOT, "audio-presets.json")
+_last_cue = ""              # most recently fired cue id — what "pin" attaches to
+_presets_lock = threading.Lock()
+_presets = {}
+
+
+def load_presets():
+    global _presets
+    try:
+        with open(PRESETS_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+        with _presets_lock:
+            _presets = {str(k): float(v) for k, v in data.get("cues", {}).items()}
+        print(f"  Audio      : {len(_presets)} cue preset(s) from audio-presets.json")
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        print(f"  audio presets unreadable ({e}) — starting empty")
+
+
+def save_presets():
+    with _presets_lock:
+        data = {"_comment": "Per-cue audio reactivity, percent. 100 = as authored.",
+                "cues": dict(sorted(_presets.items()))}
+    tmp = PRESETS_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+    os.replace(tmp, PRESETS_FILE)      # atomic, so a crash cannot truncate it
+
+
+def preset_for(cue):
+    with _presets_lock:
+        return _presets.get(str(cue))
+
+
 # ---- QLab bridge -----------------------------------------------------------
 # QLab speaks OSC; the controller page speaks HTTP. This listener lets QLab (or
 # anything else that sends OSC) fire a cue through exactly the same path the
@@ -370,7 +417,11 @@ def qlab_listener():
         for host in targets:
             try:
                 sent_at = master_now()
+                globals()["_last_cue"] = str(cue)
                 _expect_ack(host, cue, sent_at, sent_at + lead_ms / 1000.0)
+                pct = preset_for(cue)
+                if pct is not None:
+                    send_osc(host, port, "/debug/audiogain", [int(pct)])
                 my_ip = local_ip_for(host)
                 if my_ip:
                     send_osc(host, port, "/clock/master", [my_ip])
@@ -460,6 +511,15 @@ class Handler(BaseHTTPRequestHandler):
         path = unquote(urlparse(self.path).path)
 
         # Debug event feed for the controller's logger panel.
+        if path == "/audio-presets":
+            with _presets_lock:
+                payload = json.dumps({"cues": dict(sorted(_presets.items()))}).encode()
+            self.send_response(200); self._cors()
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers(); self.wfile.write(payload)
+            return
+
         if path == "/debug/events":
             try:
                 qs = urlparse(self.path).query
@@ -577,6 +637,55 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         # Start a wireless screen recording of one device (adb screenrecord).
+        if urlparse(self.path).path == "/audio-presets":
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(length) or b"{}")
+            except Exception:
+                self.send_error(400, "Bad JSON")
+                return
+            global _presets
+            cue = body.get("cue") or (_last_cue if "pin" in body else None)
+            if "pin" in body or body.get("cue"):
+                # Pin one value against one cue. Refuse rather than guess: a
+                # value silently attached to the wrong cue is worse than a
+                # value not saved at all, because nobody finds out until the
+                # effect fires in the wrong place during a show.
+                if not cue:
+                    payload = json.dumps({"ok": False,
+                                          "error": "no cue has been fired yet — nothing to pin to"}).encode()
+                    self.send_response(409); self._cors()
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(payload)))
+                    self.end_headers(); self.wfile.write(payload)
+                    return
+                pct = float(body.get("pin", body.get("pct", 100)))
+                with _presets_lock:
+                    if pct == 100:
+                        _presets.pop(str(cue), None)   # 100% IS as-authored: store nothing
+                    else:
+                        _presets[str(cue)] = pct
+                    n = len(_presets)
+                save_presets()
+                _server_log("info", f"audio {pct:.0f}% pinned to {cue} ({n} cue(s) saved)")
+                payload = json.dumps({"ok": True, "cue": cue, "pct": pct, "count": n}).encode()
+                self.send_response(200); self._cors()
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers(); self.wfile.write(payload)
+                return
+            with _presets_lock:
+                _presets = {str(k): float(v) for k, v in (body.get("cues") or {}).items()}
+                n = len(_presets)
+            save_presets()
+            _server_log("info", f"audio presets saved — {n} cue(s)")
+            payload = json.dumps({"ok": True, "count": n}).encode()
+            self.send_response(200); self._cors()
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers(); self.wfile.write(payload)
+            return
+
         if urlparse(self.path).path == "/debug/record":
             global _video_busy
             try:
@@ -673,8 +782,15 @@ class Handler(BaseHTTPRequestHandler):
             # every single time, reporting a drop for every cue that in fact
             # arrived perfectly.
             if str(addr).startswith("/audio/"):
+                globals()["_last_cue"] = str(value)
                 lead_s = (float(lead_ms) / 1000.0) if schedule else 0.0
                 _expect_ack(host, value, sent_at, sent_at + lead_s if schedule else None)
+                # Reactive intensity for this cue, if one has been set. Sent
+                # before the cue so the effect is already right on the frame it
+                # lands, rather than snapping a moment later.
+                pct = preset_for(value)
+                if pct is not None:
+                    send_osc(host, port, "/debug/audiogain", [int(pct)])
 
             if schedule:
                 # Announce the master's IP so receivers (Unity) know where to
@@ -726,6 +842,7 @@ def main():
     threading.Thread(target=clock_responder, daemon=True).start()
     threading.Thread(target=debug_listener, daemon=True).start()
     threading.Thread(target=_drop_reaper, daemon=True).start()
+    load_presets()
     threading.Thread(target=qlab_listener, daemon=True).start()
     ThreadingHTTPServer(("", PORT), Handler).serve_forever()
 
