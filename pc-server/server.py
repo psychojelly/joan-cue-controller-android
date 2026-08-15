@@ -39,8 +39,12 @@ from pythonosc.osc_message_builder import OscMessageBuilder
 # Config
 # ---------------------------------------------------------------------------
 PORT = int(os.environ.get("PORT", 8765))        # HTTP port for page + /send
-CLOCK_PORT = 9001                               # UDP: /clock/ping -> /clock/pong
-DEBUG_PORT = 9002                               # UDP: /debug/* reports from devices
+# Overridable so a SECOND instance can run beside a live one for testing.
+# The show never needs this - it exists because the start-up guard (rightly)
+# refuses to run two servers on the same UDP ports, which otherwise makes it
+# impossible to try a change without stopping the rehearsal.
+CLOCK_PORT = int(os.environ.get("CLOCK_PORT", 9001))   # UDP: /clock/ping -> pong
+DEBUG_PORT = int(os.environ.get("DEBUG_PORT", 9002))   # UDP: /debug/* from devices
 ROOT = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_PAGE = "index.html"                     # served at "/"
 
@@ -292,6 +296,39 @@ def _drop_reaper():
                   f"{DROP_GRACE_S}s)")
 
 
+# ---- shared controller settings ---------------------------------------------
+# The IP list, audience groups and port live in each browser's localStorage,
+# which means a second operator station starts life pointed at 127.0.0.1 and
+# silently cues nothing. Holding a copy HERE gives a fresh browser something
+# correct to adopt, so a new machine is useful immediately instead of after
+# somebody remembers to export and import a file.
+#
+# Deliberately a copy, not the authority: a station may legitimately differ,
+# for instance when one operator drives only audience B. The page adopts this
+# when it has no settings of its own, and otherwise only on request.
+SETTINGS_FILE = os.path.join(ROOT, "controller-settings.json")
+_settings_lock = threading.Lock()
+
+
+def read_shared_settings():
+    try:
+        with open(SETTINGS_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return None
+    except Exception as e:
+        print(f"  controller-settings.json unreadable ({e}) - ignoring")
+        return None
+
+
+def write_shared_settings(data):
+    tmp = SETTINGS_FILE + ".tmp"
+    with _settings_lock:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        os.replace(tmp, SETTINGS_FILE)     # atomic: a crash cannot truncate it
+
+
 # ---- audio reactivity presets ----------------------------------------------
 # Per-cue reactive intensity, kept HERE rather than on the headsets.
 #
@@ -350,7 +387,7 @@ def preset_for(cue):
 # redundancy and the scheduled playAt that keeps multiple headsets in sync with
 # each other. Sending to this server instead keeps QLab as the operator surface
 # while the server stays the delivery engine.
-QLAB_PORT = 53000
+QLAB_PORT = int(os.environ.get("QLAB_PORT", 53000))
 
 # Where to send. The page holds the IP list in browser storage, so the server
 # has to work it out: any device that has reported in recently is live and
@@ -513,6 +550,15 @@ class Handler(BaseHTTPRequestHandler):
         path = unquote(urlparse(self.path).path)
 
         # Debug event feed for the controller's logger panel.
+        if path == "/settings":
+            data = read_shared_settings()
+            payload = json.dumps(data if data is not None else {}).encode()
+            self.send_response(200); self._cors()
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers(); self.wfile.write(payload)
+            return
+
         if path == "/audio-presets":
             with _presets_lock:
                 payload = json.dumps({"cues": dict(sorted(_presets.items()))}).encode()
@@ -639,6 +685,34 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         # Start a wireless screen recording of one device (adb screenrecord).
+        if urlparse(self.path).path == "/settings":
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(length) or b"{}")
+            except Exception:
+                self.send_error(400, "Bad JSON")
+                return
+            if not isinstance(body, dict) or not body.get("ipList"):
+                # Refuse to store a settings blob with no devices in it. That
+                # is the one shape guaranteed to be useless, and it would be
+                # handed to every new station as if it were correct.
+                payload = json.dumps({"ok": False,
+                                      "error": "refusing to save settings with an empty ipList"}).encode()
+                self.send_response(400); self._cors()
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers(); self.wfile.write(payload)
+                return
+            write_shared_settings(body)
+            n = len(body.get("ipList") or [])
+            _server_log("info", f"controller settings saved - {n} device IP(s)")
+            payload = json.dumps({"ok": True, "ipCount": n}).encode()
+            self.send_response(200); self._cors()
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers(); self.wfile.write(payload)
+            return
+
         if urlparse(self.path).path == "/audio-presets":
             try:
                 length = int(self.headers.get("Content-Length", 0))
@@ -875,6 +949,9 @@ def main():
     print("  Press Ctrl+C to stop.\n")
     print(f"  Debug feed : UDP :{DEBUG_PORT}  /debug/* -> GET /debug/events")
     print(f"  Drop watch : cue unacked {DROP_GRACE_S}s after playAt -> /debug/drop")
+    _shared = read_shared_settings()
+    if _shared:
+        print(f"  Settings   : sharing {len(_shared.get('ipList') or [])} device IP(s) with new browsers")
     print(f"  QLab       : UDP :{QLAB_PORT}  /joan/cue <id>  -> scheduled fan-out")
     # Bind the two ports the SHOW depends on before anything else, so a
     # conflict is a refusal rather than a silent deafness.

@@ -1241,6 +1241,9 @@
         <button id="ip-export-btn" title="Export all settings (IPs, groups, audiences, port, addresses, CSV URL, cue groups, colors, FF delay)">Export Settings</button>
         <button id="ip-import-btn" title="Import settings JSON">Import Settings</button>
         <input type="file" id="ip-import-file" accept=".json" style="display:none" />
+        <button id="ip-server-save" title="Store these settings on the cue server, so any NEW browser opening the controller starts with the right devices instead of 127.0.0.1">⬆ Save to server</button>
+        <button id="ip-server-load" title="Replace this browser's settings with the copy stored on the cue server">⬇ Load from server</button>
+        <span id="ip-server-status" style="font-size:11px; color:var(--text-mute);"></span>
       </div>
     </div>
   </div>
@@ -1750,6 +1753,72 @@ document.querySelectorAll('.drawer-tab').forEach(t => {
     });
   });
 });
+// A browser that has never been configured adopts the server's copy, once.
+//
+// This is the case that actually bites: a new operator station, or the same
+// machine opened by LAN address rather than localhost, comes up with the
+// default list of 127.0.0.1 and cues nothing while looking entirely healthy.
+// Only fires when this browser has NO settings of its own, so it can never
+// overwrite a deliberate local choice — a station cueing only audience B keeps
+// cueing only audience B.
+(function adoptServerSettingsOnce() {
+  if (localStorage.getItem(SETTINGS_KEY)) return;          // already configured
+  if (sessionStorage.getItem('joan-adopted')) return;      // guard the reload
+  const url = location.protocol.startsWith('http')
+    ? '/settings' : 'http://127.0.0.1:8765/settings';
+  fetch(url).then(r => r.json()).then(j => {
+    if (!j || !(j.ipList || []).length) return;            // nothing to adopt
+    delete j.__qlab_settings__;
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(j));
+    sessionStorage.setItem('joan-adopted', '1');
+    location.reload();
+  }).catch(() => {});
+})();
+
+// ── Settings shared through the cue server ───────────────────────────────────
+// The IP list lives in localStorage, which is per browser AND per origin. So a
+// second operator station — or the same machine opened by LAN address instead
+// of localhost — starts with the default list, which is 127.0.0.1. It then
+// fires cues perfectly happily at itself and the headsets hear nothing, with
+// no error anywhere. Keeping a copy on the server gives a fresh browser
+// something correct to adopt.
+const SRV_SETTINGS_URL = location.protocol.startsWith('http')
+  ? '/settings' : 'http://127.0.0.1:8765/settings';
+
+function srvSettingsStatus(msg, cls) {
+  const el = document.getElementById('ip-server-status');
+  if (el) el.textContent = msg;
+  if (cls) setStatus(msg, cls);
+}
+
+document.getElementById('ip-server-save').addEventListener('click', () => {
+  const settings = loadSettings();
+  if (!settings.ipList || !settings.ipList.length) {
+    srvSettingsStatus('nothing to share — no device IPs set', 'err');
+    return;
+  }
+  fetch(SRV_SETTINGS_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ __qlab_settings__: 'v1', ...settings }) })
+    .then(r => r.json())
+    .then(j => srvSettingsStatus(j.ok ? `shared ${j.ipCount} device IP(s) with new browsers`
+                                      : (j.error || 'could not save'), j.ok ? 'ok' : 'err'))
+    .catch(() => srvSettingsStatus('server unreachable', 'err'));
+});
+
+document.getElementById('ip-server-load').addEventListener('click', () => {
+  fetch(SRV_SETTINGS_URL).then(r => r.json()).then(j => {
+    const ips = (j && j.ipList) || [];
+    if (!ips.length) { srvSettingsStatus('the server has no settings stored yet', 'err'); return; }
+    // Destructive, so it asks. Overwriting a station's audience selection
+    // mid-rehearsal without warning is exactly the kind of surprise this
+    // whole feature exists to prevent.
+    if (!confirm(`Replace this browser's settings with the server's copy (${ips.length} IPs)?`)) return;
+    delete j.__qlab_settings__;
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(j));
+    location.reload();
+  }).catch(() => srvSettingsStatus('server unreachable', 'err'));
+});
+
 document.getElementById('ip-export-btn').addEventListener('click', () => {
   const settings = loadSettings();
   const payload = { __qlab_settings__: 'v1', ...settings };
