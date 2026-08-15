@@ -1047,6 +1047,10 @@
       <button class="tb-btn" id="tb-debug" title="Debug logger — device roster, heartbeats, receive timestamps">🐞 Debug</button>
       <button class="tb-btn" id="tb-settings" title="Settings">⚙ Settings</button>
     </div>
+    <div class="tb-group" id="tb-clock-group" title="Wall clock, and how long since a cue last fired anywhere — this page, another operator's page, or QLab.">
+      <span id="tb-clock" style="font-family:ui-monospace,monospace; font-variant-numeric:tabular-nums; font-size:13px; font-weight:600; color:var(--accent-blue); padding:0 8px; line-height:22px;">--:--:--</span>
+      <span id="tb-since" style="font-family:ui-monospace,monospace; font-variant-numeric:tabular-nums; font-size:13px; font-weight:600; color:#6f7186; padding:0 8px 0 4px; line-height:22px; border-left:1px solid var(--border);">no cue yet</span>
+    </div>
     <div class="tb-group" title="Toggle audiences to broadcast to. Cues go to the union of selected groups. 'All' is a shortcut for every known IP.">
       <span class="tb-group-label">Audience</span>
       <div class="audience-chips" id="audience-chips"></div>
@@ -2565,6 +2569,7 @@ async function fireCue(node) {
   if (addr === '__audio') addr = document.getElementById('audio-address').value.trim() || '/audio/cue';
   const ok = await sendOsc(addr, node.oscValue);
   if (ok) {
+    if (typeof markCueFired === 'function') markCueFired(node.number || node.oscValue);
     playingId = node.id;
     renderCueList();
     refreshActiveSidebar();
@@ -3090,6 +3095,7 @@ if (loadSettings().csvUrl) {
         <input id="ar-file" type="file" accept="application/json,.json" style="display:none;">
         <span id="ar-status" style="font-size:11px; color:#6f7186;"></span>
       </div>
+      <div id="ar-compat" style="display:none; font-size:11px; line-height:1.5; color:#e0b060; background:#2a2410; border:1px solid #4a3d1a; border-radius:6px; padding:6px 9px;"></div>
     </div>
   </div>
 
@@ -3333,6 +3339,20 @@ if (loadSettings().csvUrl) {
                    fps: a.length > 5 ? Number(a[5]) : undefined,
                    batt: a.length > 6 ? Number(a[6]) : undefined,
                    chg: a.length > 7 ? Number(a[7]) : 0 };
+          // Is this a debug build? It matters because the /debug/* control
+          // addresses — the audio sliders, the render toggles — exist only in
+          // the instrumented build. A production build silently ignores an
+          // address it never bound, so without this the panel reports "sent to
+          // 1 device" and nothing whatsoever happens: the worst kind of control,
+          // one that looks like it is working.
+          //
+          // Detected from the heartbeat's LENGTH rather than a capability flag,
+          // because the builds we need to detect are already in the field and
+          // cannot be asked to announce anything. Production stops at index 7
+          // (id, mt, lastCue, stems, offsetMs, fps, batt, chg); the perf block
+          // at [8..] exists only where PerfProbe does.
+          d.debugBuild = a.length > 8;
+          if (typeof arSyncEnabled === 'function') arSyncEnabled();
         }
         // Series point per heartbeat. ms (transit = server receive − device
         // send, master clock) needs sync, so it's null when unsynced; fps and
@@ -3364,6 +3384,7 @@ if (loadSettings().csvUrl) {
       }
       case '/debug/rx': {
         touch(a[0], ev.from);
+        if (typeof markCueFired === 'function') markCueFired(a[1]);
         const scheduled = a[3] > 0;
         const marginMs = scheduled ? (a[3] - a[2]) * 1000 : null;
         addLine('rx', `RX ${a[0]}.${oct(ev.from)}  cue ${a[1]}  ${scheduled ? `margin ${marginMs.toFixed(0)}ms` : '(immediate mode)'}`, ev.t, dkey(a[0], ev.from));
@@ -3648,6 +3669,43 @@ if (loadSettings().csvUrl) {
       });
     }
 
+    // Grey the live controls out when the targeted device can't act on them.
+    //
+    // Export/Import stay enabled on purpose: they talk to the server, not the
+    // headset, so presets can still be prepared and shared while pointed at a
+    // production build. Only the knobs that need a device to obey them go dead.
+    const AR_LIVE = ['ar-gain', 'ar-low', 'ar-high', 'ar-pin', 'ar-dump', 'ar-reset'];
+    window.arSyncEnabled = function () {
+      const ips = (typeof loadIPs === 'function') ? loadIPs() : [];
+      let known = 0, plain = 0;
+      for (const id in devices) {
+        const d = devices[id];
+        if (!d || d.debugBuild === undefined) continue;
+        if (ips.length && !ips.includes(d.ip)) continue;
+        known++;
+        if (!d.debugBuild) plain++;
+      }
+      // Unknown is not the same as incompatible: before any heartbeat arrives
+      // there is nothing to go on, and disabling on no evidence would make the
+      // panel look broken every time the page is opened first.
+      const off = known > 0 && plain > 0;
+      for (const id of AR_LIVE) {
+        const el = document.getElementById(id);
+        if (!el) continue;
+        el.disabled = off;
+        el.style.opacity = off ? 0.4 : 1;
+        el.style.cursor = off ? 'not-allowed' : (el.tagName === 'BUTTON' ? 'pointer' : '');
+      }
+      const note = document.getElementById('ar-compat');
+      if (note) {
+        note.style.display = off ? 'block' : 'none';
+        if (off) note.textContent =
+          `${plain} of ${known} target${known > 1 ? 's' : ''} ${plain > 1 ? 'are' : 'is'} ` +
+          `running a build without the debug controls — the sliders would do nothing there. ` +
+          `Presets can still be edited and exported.`;
+      }
+    };
+
     // On open, say how many cues already carry a setting — otherwise the panel
     // looks empty even when the show is already running with saved values.
     fetch(PRESET_URL).then(r => r.json()).then(j => {
@@ -3821,6 +3879,60 @@ if (loadSettings().csvUrl) {
   }
   setInterval(announceMaster, 5000);
   announceMaster();
+})();
+</script>
+
+<script>
+// ── Wall clock + time since the last cue ─────────────────────────────────────
+// Two different questions during a rehearsal. The clock answers "how long have
+// we been at this" and gives everyone in the room a shared reference when
+// someone says "from the top at quarter past". The since-counter answers the
+// one that is actually hard to hold in your head: has it stalled? A long gap
+// between cues looks exactly like a working show right up until someone asks
+// how long we have been sitting here, and nobody knows.
+//
+// It counts since a cue fired ANYWHERE, not just from this page — the same
+// show can be driven from a second browser or from QLab, and a counter that
+// only saw its own clicks would sit there climbing while the show ran fine.
+// Device acks (/debug/rx) are the shared signal: every device reports every
+// cue it accepts, whatever fired it.
+(function () {
+  const clockEl = document.getElementById('tb-clock');
+  const sinceEl = document.getElementById('tb-since');
+  if (!clockEl || !sinceEl) return;
+
+  let lastCueAt = null, lastCueName = '';
+
+  // Called by fireCue (immediate, so the counter resets on the click rather
+  // than a network round-trip later) and by the /debug/rx handler.
+  window.markCueFired = function (name) {
+    lastCueAt = Date.now();
+    if (name) lastCueName = String(name);
+  };
+
+  const two = (n) => String(n).padStart(2, '0');
+
+  function tick() {
+    const now = new Date();
+    clockEl.textContent = `${two(now.getHours())}:${two(now.getMinutes())}:${two(now.getSeconds())}`;
+
+    if (lastCueAt === null) { sinceEl.textContent = 'no cue yet'; return; }
+    const s = Math.floor((Date.now() - lastCueAt) / 1000);
+    const txt = s < 3600
+      ? `${two(Math.floor(s / 60))}:${two(s % 60)}`
+      : `${Math.floor(s / 3600)}:${two(Math.floor(s / 60) % 60)}:${two(s % 60)}`;
+    sinceEl.textContent = `+${txt}${lastCueName ? ' · ' + lastCueName : ''}`;
+    // Colour is the point: during a run cues land every few seconds to a few
+    // minutes, so a gap growing past that is the first visible sign something
+    // has stopped — well before anyone thinks to check the log.
+    sinceEl.style.color = s > 300 ? '#e07a7a' : (s > 120 ? '#e0b060' : '#7ee08a');
+  }
+
+  tick();
+  // Every 250ms, not every second: a 1s interval drifts against the wall clock
+  // and the seconds digit visibly stutters. Recomputed from a timestamp each
+  // time, so it stays correct even if the tab is throttled in the background.
+  setInterval(tick, 250);
 })();
 </script>
 </body>
