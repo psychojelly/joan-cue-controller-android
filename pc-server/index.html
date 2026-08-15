@@ -3924,10 +3924,23 @@ if (loadSettings().csvUrl) {
   // reports it is playing this", not "someone asked for it".
   function highlightPlaying(name) {
     if (!name || typeof cueRoot === 'undefined') return;
-    const wanted = String(name);
+    // Two vocabularies are in play and they are NOT the same string.
+    //
+    // The cue sheet calls a cue B_SQ201 or B_VQ201.1; this page collapses the
+    // sound/video letters away and numbers its rows B_201, merging the audio
+    // and video halves of a moment into one row. Both forms reach the
+    // headset and both work, so nothing about them is wrong — but comparing
+    // them literally never matches, which is why the marker sat still while
+    // QLab drove the show.
+    //
+    // Normalised through the page's OWN audioGroupKey rather than a second
+    // copy of the rule, so if that grouping ever changes this follows it.
+    const norm = (v) => (typeof audioGroupKey === 'function')
+      ? audioGroupKey(v) : String(v);
+    const wanted = norm(name);
     const found = (function find(n) {
       if (!n) return null;
-      if (!n.children && String(n.number) === wanted) return n;
+      if (!n.children && norm(n.number) === wanted) return n;
       for (const c of (n.children || [])) { const hit = find(c); if (hit) return hit; }
       return null;
     })(cueRoot);
