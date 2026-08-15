@@ -3908,7 +3908,40 @@ if (loadSettings().csvUrl) {
   window.markCueFired = function (name) {
     lastCueAt = Date.now();
     if (name) lastCueName = String(name);
+    highlightPlaying(name);
   };
+
+  // Move the cue list's "playing" highlight to whatever actually fired.
+  //
+  // The list used to follow only local clicks, because that was the only way
+  // a cue could start. It isn't any more: QLab drives the same show, and so
+  // can a second operator's browser. When one of those fires, the page went
+  // on highlighting the last cue THIS browser clicked — actively misleading,
+  // because the highlight looks like a statement about the show rather than
+  // about this tab. A wrong answer is worse than none during a run.
+  //
+  // Driven off device acknowledgements, so the highlight means "a headset
+  // reports it is playing this", not "someone asked for it".
+  function highlightPlaying(name) {
+    if (!name || typeof cueRoot === 'undefined') return;
+    const wanted = String(name);
+    const found = (function find(n) {
+      if (!n) return null;
+      if (!n.children && String(n.number) === wanted) return n;
+      for (const c of (n.children || [])) { const hit = find(c); if (hit) return hit; }
+      return null;
+    })(cueRoot);
+    // Unknown ids (a typo, or a cue fired from a newer CSV than this page
+    // has loaded) leave the highlight alone rather than clearing it — losing
+    // the marker entirely is a worse failure than it lagging by one cue.
+    if (!found || found.id === playingId) return;
+    playingId = found.id;
+    // Re-render only on an actual change: acks arrive once per device, and
+    // six headsets redrawing a 176-row list six times per cue is visible.
+    if (typeof renderCueList === 'function') renderCueList();
+    if (typeof refreshActiveSidebar === 'function') refreshActiveSidebar();
+    if (typeof renderStemsTable === 'function') renderStemsTable();
+  }
 
   const two = (n) => String(n).padStart(2, '0');
 
