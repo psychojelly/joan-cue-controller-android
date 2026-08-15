@@ -3181,6 +3181,7 @@ if (loadSettings().csvUrl) {
       <span style="font-size:10px; letter-spacing:1px; color:#d4af6a;">VIEW</span>
       <button id="dbg-view-log" style="background:#2a2d3a; border:1px solid #3a3d4a; color:#e8eaf2; border-radius:6px; cursor:pointer; padding:2px 10px; font-family:inherit; font-size:11px;">log</button>
       <button id="dbg-view-graph" style="background:none; border:1px solid #2a2d3a; color:#8f93a8; border-radius:6px; cursor:pointer; padding:2px 10px; font-family:inherit; font-size:11px;">graph</button>
+      <button id="dbg-pull-transforms" title="Fetch the object positions saved on the headset by its Object Ctrl panel, and download them as JSON" style="background:none; border:1px solid #2a2d3a; color:#8f93a8; border-radius:6px; cursor:pointer; padding:2px 10px; font-family:inherit; font-size:11px;">⬇ Object positions</button>
       <button id="dbg-drops-only" title="Show only cues a device never acknowledged" style="background:none; border:1px solid #2a2d3a; color:#8f93a8; border-radius:6px; cursor:pointer; padding:2px 10px; font-family:inherit; font-size:11px;">dropped only <span id="dbg-drop-count" style="color:#ff5f5f;"></span></button>
       <span style="font-size:10px; color:#6f7186;">mt = master-clock seconds · newest first</span>
     </div>
@@ -3795,6 +3796,40 @@ if (loadSettings().csvUrl) {
       arSend('/debug/audiogain', 100);
       arSend('/debug/audiolow', 0);
       arSend('/debug/audiohigh', 100);
+    });
+  }
+
+  // ── Pull the object positions off a headset ────────────────────
+  // The Object Ctrl panel in the headset saves where things have been nudged
+  // to, but only into that device's own storage. Somebody spends a rehearsal
+  // placing objects and the numbers are then stranded on one pair of glasses.
+  // This brings them back as a file that can be read, kept, and eventually
+  // written into the scene properly.
+  {
+    const btn = document.getElementById('dbg-pull-transforms');
+    if (btn) btn.addEventListener('click', () => {
+      // Ask the device the panel is pointed at, falling back to the first
+      // one heard from - guessing silently would fetch the wrong headset's
+      // positions and look like the right answer.
+      const sel = targetSel && targetSel.value;
+      const ip = (sel && sel !== 'all') ? sel
+               : (Object.values(devices).map(d => d.ip).filter(Boolean)[0] || '');
+      if (!ip) { statusEl.textContent = 'no device to pull from'; return; }
+      statusEl.textContent = `fetching object positions from ${ip}…`;
+      const base = location.protocol.startsWith('http') ? '' : 'http://127.0.0.1:8765';
+      fetch(`${base}/object-transforms?ip=${encodeURIComponent(ip)}`)
+        .then(r => r.json())
+        .then(j => {
+          if (!j.ok) { statusEl.textContent = j.error || 'could not fetch'; return; }
+          const blob = new Blob([j.transforms], { type: 'application/json' });
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = `object-positions-${ip.replace(/\./g, '-')}.json`;
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+          statusEl.textContent = `object positions downloaded from ${ip}`;
+        })
+        .catch(() => { statusEl.textContent = 'server unreachable'; });
     });
   }
 
