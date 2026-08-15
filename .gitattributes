@@ -1,0 +1,10 @@
+# Shell scripts must keep LF endings, always.
+#
+# This repo is edited on Windows, where git's autocrlf hands out CRLF on
+# checkout. A shell script with CRLF fails on macOS and Linux with
+# "bad interpreter: /bin/bash^M" — an error that names the interpreter
+# rather than the line endings, and so reads as a broken Python or a
+# broken Mac rather than a whitespace problem. It has cost people whole
+# afternoons. Pinning the endings here removes the possibility.
+*.sh        text eol=lf
+*.command   text eol=lf
