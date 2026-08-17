@@ -3451,6 +3451,24 @@ if (loadSettings().csvUrl) {
         }
         break;   // roster only — no log spam
       }
+      // The device has looked the cue up and says what it turned out to be.
+      // /debug/rx only means a packet arrived — an unknown id is acknowledged
+      // exactly like a real one — so this is the message that distinguishes
+      // "playing" from "received something it could not use".
+      case '/debug/cue': {
+        touch(a[0], ev.from);
+        const okCue = Number(a[2]) === 1;
+        const stems = Number(a[3]) || 0;
+        const note  = a[4] || '';
+        addLine(okCue ? 'rx' : 'drop',
+          okCue ? `PLAYING ${a[1]}  ${stems} stem${stems === 1 ? '' : 's'}${note ? '  ' + note : ''}  [${a[0]}]`
+                : `NO SUCH CUE ${a[1]}  [${a[0]}] — delivered, but the headset has no cue with that id`,
+          ev.t, dkey(a[0], ev.from));
+        if (okCue) { if (typeof markCueFired === 'function') markCueFired(a[1]); }
+        else if (typeof setStatus === 'function') setStatus(`${a[0]}: no such cue "${a[1]}"`, 'err');
+        break;
+      }
+
       case '/debug/rx': {
         touch(a[0], ev.from);
         if (typeof markCueFired === 'function') markCueFired(a[1]);
