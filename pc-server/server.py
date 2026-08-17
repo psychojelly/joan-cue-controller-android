@@ -311,6 +311,42 @@ def _drop_reaper():
                   f"{DROP_GRACE_S}s)")
 
 
+# ---- object transforms pulled off a headset ---------------------------------
+# The in-headset Object Ctrl panel saves the positions it has been nudged to,
+# but only into that device's own storage - so a placement dialled in on one
+# pair of glasses is invisible everywhere else and dies with the app. This
+# fetches the file over the same wireless adb link the video recorder uses, so
+# the numbers can be read, kept, and eventually written into the show.
+#
+# The package name is not hardcoded: the show, debug and tablet builds each
+# have their own, and guessing wrong would report "no positions saved" for a
+# file that exists.
+TRANSFORM_FILE = "ObjectTransforms.json"
+
+
+def pull_object_transforms(ip):
+    """Return (json_text, source_path) from the headset, or (None, reason)."""
+    serial = f"{ip}:5555"
+    r = _adb(["connect", serial], 10)
+    if "connected" not in (r.stdout or ""):
+        return None, (f"cannot reach {serial} over wireless adb - it resets on "
+                      f"every device reboot, so plug into USB once and re-enable")
+    found = _adb(["-s", serial, "shell",
+                  f"ls /sdcard/Android/data/*/files/{TRANSFORM_FILE} 2>/dev/null"], 15)
+    paths = [ln.strip() for ln in (found.stdout or "").splitlines()
+             if ln.strip().endswith(TRANSFORM_FILE)]
+    if not paths:
+        return None, ("no saved positions on that device yet - open Object Ctrl "
+                      "on the headset and press Save first")
+    # Newest wins if several builds are installed side by side.
+    src = paths[-1]
+    got = _adb(["-s", serial, "shell", "cat", src], 20)
+    text = (got.stdout or "").strip()
+    if not text:
+        return None, f"found {src} but it was empty"
+    return text, src
+
+
 # ---- shared controller settings ---------------------------------------------
 # The IP list, audience groups and port live in each browser's localStorage,
 # which means a second operator station starts life pointed at 127.0.0.1 and
@@ -565,6 +601,31 @@ class Handler(BaseHTTPRequestHandler):
         path = unquote(urlparse(self.path).path)
 
         # Debug event feed for the controller's logger panel.
+        if path == "/object-transforms":
+            q = urlparse(self.path).query
+            ip = ""
+            for part in q.split("&"):
+                if part.startswith("ip="):
+                    ip = unquote(part[3:])
+            if not ip:
+                self.send_error(400, "need ?ip=<device>")
+                return
+            text, info = pull_object_transforms(ip)
+            if text is None:
+                _server_log("error", f"object positions: {info}")
+                payload = json.dumps({"ok": False, "error": info}).encode()
+                code = 404
+            else:
+                _server_log("info", f"object positions pulled from {ip} ({info})")
+                payload = json.dumps({"ok": True, "source": info,
+                                      "device": ip, "transforms": text}).encode()
+                code = 200
+            self.send_response(code); self._cors()
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers(); self.wfile.write(payload)
+            return
+
         if path == "/settings":
             data = read_shared_settings()
             payload = json.dumps(data if data is not None else {}).encode()
