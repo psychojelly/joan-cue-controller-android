@@ -104,6 +104,7 @@ _debug_lock = threading.Lock()
 _debug_events = []          # ring buffer of dicts
 _debug_seq = 0
 DEBUG_RING = 500
+DEBUG_LOG_RING = 120        # of those, at most this many forwarded device logs
 
 
 # ---- headset snapshots (POSTed as JPEG over HTTP — too big for OSC/UDP) ----
@@ -244,6 +245,20 @@ def _debug_add(addr, args, src_ip):
             "args": list(args),
             "from": src_ip,
         })
+        # Forwarded device logs get their own quota inside the ring.
+        #
+        # One ring shared by everything means a chatty engine warning evicts the
+        # events you are actually watching. That is not hypothetical: a PrimeTween
+        # warning about a tween on an inactive GameObject arrived often enough to
+        # fill 451 of 500 slots, and pushed out the cue reports being tested -
+        # the noisiest signal silently destroying the most important one.
+        #
+        # So logs are trimmed against their own budget first, leaving cue traffic,
+        # acks, drops and heartbeats to compete only with each other.
+        logs = [e for e in _debug_events if e["addr"] == "/debug/log"]
+        if len(logs) > DEBUG_LOG_RING:
+            drop = set(id(e) for e in logs[:len(logs) - DEBUG_LOG_RING])
+            _debug_events[:] = [e for e in _debug_events if id(e) not in drop]
         while len(_debug_events) > DEBUG_RING:
             _debug_events.pop(0)
 

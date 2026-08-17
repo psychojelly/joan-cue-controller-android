@@ -3219,7 +3219,7 @@ if (loadSettings().csvUrl) {
   const targetSel = document.getElementById('dbg-target');
   const hudSel = document.getElementById('dbg-hud');
   const statusEl = document.getElementById('dbg-status');
-  let lastSeq = 0, open = false, view = 'log', dropsOnly = false;
+  let lastSeq = 0, open = false, view = 'log', dropsOnly = false, cuesOnly = false;
   const devices = {};           // id -> {ip, lastSeen(ms), hb:[...], kind, drift}
   const lines = [];             // {dev, kind, html} — dev = device id, undefined for control lines
   const acks = [];              // per-cue ack rollup: {key, cueId, scheduled, t, rx:{id:marginMs}}
@@ -3349,10 +3349,17 @@ if (loadSettings().csvUrl) {
 
   function esc(s) { return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 
+  // Which line kinds are about CUES rather than about the device chattering.
+  // A stray warning repeated 400 times will otherwise bury the one line that
+  // says a cue did not exist — which is exactly what happened with PrimeTween's
+  // "Tween is started on GameObject that is not active" during testing.
+  const CUE_KINDS = new Set(['rx', 'drop', 'cue', 'nocue', 'ctl']);
+
   function addLine(kind, text, mt, dev) {
-    const color = { rx:'#7ee08a', hb:'#5fb8c4', log:'#cfd2e0', ctl:'#d4af6a', err:'#e07a7a', raw:'#8f93a8', drop:'#ff5f5f' }[kind] || '#cfd2e0';
+    const color = { rx:'#7ee08a', hb:'#5fb8c4', log:'#cfd2e0', ctl:'#d4af6a', err:'#e07a7a', raw:'#8f93a8', drop:'#ff5f5f',
+                    cue:'#7ee08a', nocue:'#ff5f5f' }[kind] || '#cfd2e0';
     const stamp = mt !== undefined ? `<span style="color:#6f7186">mt ${Number(mt).toFixed(3)}</span> ` : '';
-    const weight = kind === 'drop' ? 'font-weight:700;' : '';
+    const weight = (kind === 'drop' || kind === 'nocue' || kind === 'cue') ? 'font-weight:700;' : '';
     lines.unshift({ dev, kind, html: `<div style="color:${color};${weight}">${stamp}${esc(text)}</div>` });
     if (lines.length > 150) lines.pop();
     refreshDropCount();
@@ -3364,6 +3371,7 @@ if (loadSettings().csvUrl) {
   function renderLog() {
     if (!open) return;
     let visible = lines.filter(l => l.dev === undefined || selSet.has(l.dev));
+    if (cuesOnly)  visible = visible.filter(l => CUE_KINDS.has(l.kind));
     if (dropsOnly) visible = visible.filter(l => l.kind === 'drop');
     logEl.innerHTML = visible.length
       ? visible.map(l => l.html).join('')
@@ -3460,7 +3468,7 @@ if (loadSettings().csvUrl) {
         const okCue = Number(a[2]) === 1;
         const stems = Number(a[3]) || 0;
         const note  = a[4] || '';
-        addLine(okCue ? 'rx' : 'drop',
+        addLine(okCue ? 'cue' : 'nocue',
           okCue ? `PLAYING ${a[1]}  ${stems} stem${stems === 1 ? '' : 's'}${note ? '  ' + note : ''}  [${a[0]}]`
                 : `NO SUCH CUE ${a[1]}  [${a[0]}] — delivered, but the headset has no cue with that id`,
           ev.t, dkey(a[0], ev.from));
@@ -3820,6 +3828,20 @@ if (loadSettings().csvUrl) {
   // A drop is rare and buried: at ~4 heartbeats/second per device the log
   // scrolls a missing cue off screen in seconds. This narrows the same feed to
   // just the drops so a show can be audited after the fact.
+  // Cues only: hide forwarded device logs and heartbeats. A single repeated
+  // engine warning can otherwise fill the whole view - during testing a
+  // PrimeTween warning about an inactive GameObject arrived hundreds of times
+  // and buried the one line saying a cue did not exist.
+  const cuesBtn = document.getElementById('dbg-cues-only');
+  if (cuesBtn) cuesBtn.addEventListener('click', () => {
+    cuesOnly = !cuesOnly;
+    cuesBtn.style.cssText += ';' + (cuesOnly
+      ? 'background:#2a2d3a; color:#e8eaf2; border-color:#3a3d4a;'
+      : 'background:none; color:#8f93a8; border-color:#2a2d3a;');
+    if (cuesOnly) setView('log');
+    renderLog();
+  });
+
   const dropsBtn = document.getElementById('dbg-drops-only');
   const dropCountEl = document.getElementById('dbg-drop-count');
   dropsBtn.addEventListener('click', () => {
