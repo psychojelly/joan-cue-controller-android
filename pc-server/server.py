@@ -1015,6 +1015,34 @@ def _die_port_in_use(port, what, err):
     raise SystemExit(1)
 
 
+def _make_http_server(port, handler):
+    """Serve on IPv6 AND IPv4, because "localhost" is not one address.
+
+    ThreadingHTTPServer(("", port)) binds AF_INET only. On Windows, "localhost"
+    resolves to ::1 FIRST, so a browser asking for http://localhost:8765 gets
+    connection-refused from an IPv4-only server and shows "unable to connect" —
+    while curl appears to work, because it silently falls back to IPv4 and hides
+    the bug. That combination cost an afternoon: the server was plainly running
+    and listening, and the page still would not open.
+
+    Binding :: with IPV6_V6ONLY off accepts both families on one socket. Some
+    systems refuse that, so an IPv4-only server remains the fallback rather than
+    the server failing to start at all.
+    """
+    class DualStack(ThreadingHTTPServer):
+        address_family = socket.AF_INET6
+        def server_bind(self):
+            try:
+                self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+            except (AttributeError, OSError):
+                pass          # v4-mapped unavailable; still serves IPv6
+            ThreadingHTTPServer.server_bind(self)
+    try:
+        return DualStack(("::", port), handler)
+    except OSError:
+        return ThreadingHTTPServer(("", port), handler)
+
+
 def main():
     print("Joan of the City - Fused OSC Cue Server")
     print(f"  Controller : http://localhost:{PORT}/")
@@ -1051,7 +1079,7 @@ def main():
     threading.Thread(target=qlab_listener, daemon=True).start()
 
     try:
-        ThreadingHTTPServer(("", PORT), Handler).serve_forever()
+        _make_http_server(PORT, Handler).serve_forever()
     except OSError as e:
         # The HTTP port is the one people already understand, so this stays a
         # plain message rather than the full banner above.

@@ -16,6 +16,22 @@
 # what Finder sets the working directory to.
 cd "$(dirname "$0")" || exit 1
 
+# Is server.py actually here? Checked before anything prints a success
+# message, for the same reason as the Windows launcher: announcing an
+# address and then failing makes a missing file look like a broken server.
+if [ ! -f "$(dirname "$0")/server.py" ]; then
+  echo
+  echo "  [!] server.py is not in this folder, so the server cannot start."
+  echo
+  echo "      Looked in: $(dirname "$0")"
+  echo
+  echo "      If you opened this straight from the downloaded .zip, unzip it"
+  echo "      to a real folder (your Desktop is fine) and run it from there."
+  echo
+  read -r -p "  Press return to close." _
+  exit 1
+fi
+
 printf '\033]0;Joan Cue Server\007'        # window title
 
 # ── Python ──────────────────────────────────────────────────────────
@@ -103,7 +119,19 @@ echo
 # Open the page in the background so the server still starts below. The
 # delay matters: opening instantly hits the port before it is listening
 # and greets the operator with a connection error.
-( sleep 4; open "http://localhost:8765/" >/dev/null 2>&1 ) &
+# Poll until the port answers rather than sleeping a fixed 4s and hoping.
+# A cold start can take longer, and the browser arriving first shows
+# "unable to connect", which reads as a broken server rather than an
+# early one.
+(
+  for _ in $(seq 1 120); do
+    if nc -z 127.0.0.1 8765 >/dev/null 2>&1; then
+      open "http://localhost:8765/" >/dev/null 2>&1
+      break
+    fi
+    sleep 0.5
+  done
+) &
 
 echo "  Opening the controller in your browser..."
 echo

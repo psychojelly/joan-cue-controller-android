@@ -8,6 +8,36 @@ REM ═════════════════════════�
 title Joan Cue Server
 cd /d "%~dp0"
 
+REM Is server.py actually here?
+REM
+REM Checked FIRST, before the banner and before the browser opens. Without
+REM this the script printed "Open the controller at http://localhost:8765",
+REM opened a browser, and only then did Python fail to find server.py - so the
+REM operator saw a confident success message followed by a page that would not
+REM connect, and reasonably concluded the server was broken.
+REM
+REM The usual cause is running this .bat from INSIDE the downloaded .zip.
+REM Windows extracts just the one file to a Temp folder and leaves the rest in
+REM the archive, so python is asked for a server.py that was never unpacked.
+if not exist "%~dp0server.py" (
+  echo.
+  echo  [!] server.py is not in this folder, so the server cannot start.
+  echo.
+  echo      Looked in: %~dp0
+  echo.
+  echo      This usually means start-server.bat is being run from inside the
+  echo      downloaded .zip file. Windows opens a temporary copy of only this
+  echo      one file, leaving server.py behind in the archive.
+  echo.
+  echo      To fix it:
+  echo        1. Right-click the .zip and choose "Extract All..."
+  echo        2. Pick a real folder, for example your Desktop
+  echo        3. Open that extracted folder and run start-server.bat from there
+  echo.
+  pause
+  exit /b 1
+)
+
 where python >nul 2>nul
 if errorlevel 1 (
   echo [!] Python not found. Install from python.org and tick "Add Python to PATH".
@@ -73,7 +103,11 @@ echo.
 REM Open the controller automatically, in a side process so the server still
 REM starts below. Waits a few seconds first: opening instantly would hit the
 REM page before the server is listening and show a connection error.
-start "" /b cmd /c "timeout /t 4 /nobreak >nul & start "" http://localhost:8765/"
+REM Poll until the port actually answers, then open. The old version waited a
+REM fixed 4 seconds and hoped. On a cold start - antivirus, a slow CSV fetch -
+REM the browser arrived first, showed "unable to connect", and looked exactly
+REM like a broken server to anyone who did not know to press refresh.
+start "" /b powershell -NoProfile -Command "for($i=0;$i -lt 120;$i++){ try{ $c=New-Object Net.Sockets.TcpClient; $c.Connect('127.0.0.1',8765); $c.Close(); Start-Process 'http://localhost:8765/'; break } catch { Start-Sleep -Milliseconds 500 } }"
 
 echo  Opening the controller in your browser...
 echo.
