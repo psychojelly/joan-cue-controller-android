@@ -83,7 +83,7 @@ The server is only the **sender**. The **receiver** is Unity:
   (mapped in the Inspector; 6–8 may be unassigned). Controller cue numbers
   **9–16** drive Shadow animation states via a separate receiver.
 - Audio cues: `/audio/*` → the `JoanAudio` stem engine, whose cue list comes from
-  a **CSV on GitHub** (`dlobser/opera-audio`) that both Unity and the controller
+  a **CSV on GitHub** (`psychojelly/opera-audio`) that both Unity and the controller
   read. `csv-editor.html` edits that CSV.
 
 Sender and receiver are kept in sync **only by the cue number** for visual cues.

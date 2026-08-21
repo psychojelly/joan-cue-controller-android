@@ -280,7 +280,7 @@ Each phase is useful alone; nothing blocks a show if later phases slip.
   `Assets/JoanAudio/Scripts/` (`OscCueReceiver.cs`, `AudioSceneController.cs`,
   `AudioStemPlayer.cs`, `AudioStemLoader.cs`). OSC via **extOSC**, receiver on
   UDP :7000. `PreloadAll` is ON in MainScene; loader mode is Remote (GitHub
-  `dlobser/opera-audio`, disk-cached).
+  `psychojelly/opera-audio`, disk-cached).
 - Cue senders: `Assets/ThirdParty/OSC_Controller/` (HTML + `proxy.py`), the
   fused `osc-cue-server/server.py`, and this Android app (Operator mode:
   `CueHttpServer.kt`).
