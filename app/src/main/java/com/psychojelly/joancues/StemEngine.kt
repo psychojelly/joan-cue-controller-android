@@ -26,8 +26,8 @@ class StemEngine(private val context: Context) {
 
     companion object {
         private const val TAG = "StemEngine"
-        const val DEFAULT_CSV_URL = "https://raw.githubusercontent.com/dlobser/opera-audio/main/audio_cues.csv"
-        const val DEFAULT_STEM_BASE = "https://raw.githubusercontent.com/dlobser/opera-audio/main/Stems"
+        const val DEFAULT_CSV_URL = "https://raw.githubusercontent.com/psychojelly/opera-audio/main/audio_cues.csv"
+        const val DEFAULT_STEM_BASE = "https://raw.githubusercontent.com/psychojelly/opera-audio/main/Stems"
         private val EXTENSIONS = listOf(".wav", ".mp3", ".ogg")
         private const val FADE_TICK_MS = 33L
     }
